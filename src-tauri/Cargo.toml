@@ -1,0 +1,31 @@
+[package]
+name = "tauri-app"
+version = "0.1.0"
+description = "Worship Playback Pro"
+authors = ["you"]
+edition = "2024"
+
+[lib]
+name = "tauri_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["custom-protocol"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+local-ip-address = "0.6.13"
+axum = { version = "0.8.9", features = ["ws"] }
+qrcode = "0.14.1"
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
