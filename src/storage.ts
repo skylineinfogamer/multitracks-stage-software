@@ -1,4 +1,4 @@
-import type { ClickSound, ClickSubdivision, MidiMapping, PadFolderBank, PadSound, Setlist, Song, TransitionMode } from './types';
+import type { ClickSound, ClickSubdivision, MidiMapping, OutputBus, PadFolderBank, PadSound, Setlist, Song, TransitionMode } from './types';
 import type { AsioOutputMapping } from './audio/asioService';
 import { DEFAULT_ASIO_MAPPING } from './audio/asioService';
 
@@ -508,6 +508,10 @@ export interface Settings {
   asioOutputMapping?: AsioOutputMapping;
   secondaryOutputDevice?: string;
   useDualAudioDevices?: boolean;
+  internalClickVolume?: number;
+  internalClickMute?: boolean;
+  internalClickOutput?: OutputBus;
+  autoGuideOutput?: OutputBus;
 }
 
 export interface PersistedState {
@@ -565,6 +569,10 @@ export const DEFAULT_SETTINGS: Settings = {
   asioOutputMapping: DEFAULT_ASIO_MAPPING,
   secondaryOutputDevice: '',
   useDualAudioDevices: false,
+  internalClickVolume: 0.75,
+  internalClickMute: false,
+  internalClickOutput: 'OUT_6',
+  autoGuideOutput: 'OUT_5',
 };
 
 export function loadState(): PersistedState | null {

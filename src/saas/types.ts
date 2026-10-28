@@ -8,7 +8,7 @@ export type SubscriptionPlanId = 'monthly' | 'annual' | 'church_vip' | 'admin_vi
 
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing' | 'unpaid';
 
-export type PaymentProvider = 'stripe' | 'asaas' | 'manual';
+export type PaymentProvider = 'infinitepay' | 'manual';
 
 export interface UserSubscription {
   planId: SubscriptionPlanId;
@@ -34,18 +34,13 @@ export interface PlanDetails {
 }
 
 export interface PaymentGatewayConfig {
-  activeProvider: 'stripe' | 'asaas';
-  // Stripe configuration
-  stripePublishableKey?: string;
-  stripeWebhookSecret?: string;
-  stripeMonthlyCheckoutUrl?: string;
-  stripeAnnualCheckoutUrl?: string;
-  // Asaas configuration
-  asaasApiKey?: string;
-  asaasWebhookToken?: string;
-  asaasMonthlyCheckoutUrl?: string;
-  asaasAnnualCheckoutUrl?: string;
-  asaasPixKey?: string;
+  activeProvider: 'infinitepay';
+  // InfinitePay configuration (Único Gateway Oficial)
+  infinitepayHandle?: string;
+  infinitepayApiKey?: string;
+  infinitepayWebhookSecret?: string;
+  infinitepayMonthlyCheckoutUrl?: string;
+  infinitepayAnnualCheckoutUrl?: string;
 }
 
 export interface User {
@@ -89,6 +84,9 @@ export interface CatalogSong {
   beatsPerBar: number;
   durationSec: number;
   cloudFolderId?: string;
+  zipFileId?: string;
+  zipDownloadUrl?: string;
+  zipFileSize?: number;
   provider: 'gdrive' | 'onedrive';
   stems: CatalogStem[];
   tags?: string[];

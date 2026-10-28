@@ -7,6 +7,9 @@ use tauri::{AppHandle, Manager};
 mod remote_server;
 use remote_server::{generate_qr_svg, get_all_local_ips, get_best_local_ip, start_server, RemoteServerInfo, ServerState};
 
+mod zip_extractor;
+use zip_extractor::{extract_multitrack_zip, extract_multitrack_zip_bytes, read_audio_file};
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -455,6 +458,8 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             greet,
             fetch_tts_audio,
@@ -466,7 +471,10 @@ pub fn run() {
             start_remote_server,
             stop_remote_server,
             set_remote_ip,
-            broadcast_remote_state
+            broadcast_remote_state,
+            extract_multitrack_zip,
+            extract_multitrack_zip_bytes,
+            read_audio_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

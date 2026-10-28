@@ -4,6 +4,7 @@ import { guessTrack, orderTracksForStage, uid } from '../music';
 import { decodeAudioDataSafe, saveStem } from '../storage';
 import { isCombinedClickGuide, isDualChannelClickGuide, splitStereoClickGuide } from '../audio/audioSeparation';
 import { detectSectionsFromAudio, generateChordChartForSong } from '../audio/aiAssistant';
+import { processZipFile } from '../utils/zipExtractor';
 import type { CatalogSong, CatalogStem, DownloadProgress, GoogleServiceAccountKey, MasterCloudConfig } from './types';
 import defaultServiceAccount from './serviceAccount.json';
 
@@ -123,76 +124,6 @@ export async function createServiceAccountJwt(sa: GoogleServiceAccountKey): Prom
   return `${h}.${p}.${base64UrlEncode(new Uint8Array(sig))}`;
 }
 
-const INITIAL_CATALOG: CatalogSong[] = [
-  {
-    id: 'cat_bondade_de_deus',
-    title: 'Bondade de Deus',
-    artist: 'Isaías Saad',
-    bpm: 70,
-    key: 'G',
-    beatsPerBar: 4,
-    durationSec: 312,
-    provider: 'gdrive',
-    addedAt: '2026-10-25T10:00:00Z',
-    stems: [
-      { id: 'st_1', name: 'CLICK', fileName: '01_Click_70bpm.wav', kind: 'click', bus: 'UTILITY', output: 'OUT_6' },
-      { id: 'st_2', name: 'GUIA', fileName: '02_Guia_Contagem.wav', kind: 'guide', bus: 'UTILITY', output: 'OUT_5' },
-      { id: 'st_3', name: 'BATERIA', fileName: '03_Drums_Kit.wav', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2' },
-      { id: 'st_4', name: 'BAIXO', fileName: '04_Bass.wav', kind: 'audio', bus: 'BASS', output: 'OUT_3_4' },
-      { id: 'st_5', name: 'VIOLÃO', fileName: '05_Acoustic_Guitar.wav', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2' },
-      { id: 'st_6', name: 'GUITARRA 1', fileName: '06_Electric_Guitar_1.wav', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2' },
-      { id: 'st_7', name: 'PIANO', fileName: '07_Piano_Acoustic.wav', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2' },
-      { id: 'st_8', name: 'PAD', fileName: '08_Ambient_Pad.wav', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2' },
-      { id: 'st_9', name: 'CORO / BGV', fileName: '09_BGV_Choir.wav', kind: 'audio', bus: 'VOCALS', output: 'OUT_1_2' },
-    ],
-  },
-  {
-    id: 'cat_vitorioso_es',
-    title: 'Vitorioso És',
-    artist: 'Gabriel Guedes',
-    bpm: 72,
-    key: 'E',
-    beatsPerBar: 4,
-    durationSec: 345,
-    provider: 'gdrive',
-    addedAt: '2026-10-25T10:00:00Z',
-    stems: [
-      { id: 'st_1', name: 'CLICK', fileName: '01_Click_72bpm.wav', kind: 'click', bus: 'UTILITY', output: 'OUT_6' },
-      { id: 'st_2', name: 'GUIA', fileName: '02_Guia_Voz.wav', kind: 'guide', bus: 'UTILITY', output: 'OUT_5' },
-      { id: 'st_3', name: 'BUMBO', fileName: '03_Kick.wav', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2' },
-      { id: 'st_4', name: 'CAIXA', fileName: '04_Snare.wav', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2' },
-      { id: 'st_5', name: 'BAIXO', fileName: '05_Bass.wav', kind: 'audio', bus: 'BASS', output: 'OUT_3_4' },
-      { id: 'st_6', name: 'GUITARRA 1', fileName: '06_EG1_Drive.wav', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2' },
-      { id: 'st_7', name: 'GUITARRA 2', fileName: '07_EG2_Ambient.wav', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2' },
-      { id: 'st_8', name: 'TECLADO', fileName: '08_Piano_Rhodes.wav', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2' },
-      { id: 'st_9', name: 'PAD', fileName: '09_Warm_Pad.wav', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2' },
-      { id: 'st_10', name: 'SYNTH', fileName: '10_Synth_Lead.wav', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2' },
-    ],
-  },
-  {
-    id: 'cat_a_ele_a_gloria',
-    title: 'A Ele a Glória',
-    artist: 'Gabriela Rocha',
-    bpm: 68,
-    key: 'A',
-    beatsPerBar: 4,
-    durationSec: 290,
-    provider: 'gdrive',
-    addedAt: '2026-10-26T14:00:00Z',
-    stems: [
-      { id: 'st_1', name: 'CLICK', fileName: '01_Click.wav', kind: 'click', bus: 'UTILITY', output: 'OUT_6' },
-      { id: 'st_2', name: 'GUIA', fileName: '02_Guia.wav', kind: 'guide', bus: 'UTILITY', output: 'OUT_5' },
-      { id: 'st_3', name: 'BATERIA', fileName: '03_Drums.wav', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2' },
-      { id: 'st_4', name: 'BAIXO', fileName: '04_Bass.wav', kind: 'audio', bus: 'BASS', output: 'OUT_3_4' },
-      { id: 'st_5', name: 'VIOLÃO', fileName: '05_Acoustic.wav', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2' },
-      { id: 'st_6', name: 'GUITARRA 1', fileName: '06_EG1.wav', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2' },
-      { id: 'st_7', name: 'PIANO', fileName: '07_Piano.wav', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2' },
-      { id: 'st_8', name: 'PAD', fileName: '08_Pad.wav', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2' },
-      { id: 'st_9', name: 'CORDAS / METAIS', fileName: '09_Strings.wav', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2' },
-    ],
-  },
-];
-
 class MasterCatalogService {
   private catalog: CatalogSong[] = [];
   private masterConfig: MasterCloudConfig;
@@ -203,6 +134,18 @@ class MasterCatalogService {
   constructor() {
     this.masterConfig = this.loadMasterConfig();
     this.catalog = this.loadCatalog();
+    // Limpa músicas antigas/mock para permitir nova atualização do zero
+    this.clearCatalog();
+  }
+
+  clearCatalog(): void {
+    this.catalog = [];
+    localStorage.setItem(LS_CATALOG_KEY, JSON.stringify([]));
+    this.saveMasterConfig({
+      totalSyncedSongs: 0,
+      lastSyncTime: '',
+    });
+    this.notify();
   }
 
   private loadMasterConfig(): MasterCloudConfig {
@@ -213,7 +156,7 @@ class MasterCatalogService {
       rootFolderId: '',
       rootFolderName: 'Minha Pasta Raiz de MultiTracks',
       serviceAccount: defaultSa ?? null,
-      totalSyncedSongs: 3,
+      totalSyncedSongs: 0,
       adminWhatsAppNumber: '',
     };
     try {
@@ -240,13 +183,19 @@ class MasterCatalogService {
       const raw = localStorage.getItem(LS_CATALOG_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as CatalogSong[];
-        if (parsed.length > 0) return parsed;
+        const clean = parsed.filter(
+          (s) =>
+            !s.id.startsWith('cat_') &&
+            s.title !== 'Bondade de Deus' &&
+            s.title !== 'Vitorioso És' &&
+            s.title !== 'A Ele a Glória',
+        );
+        return clean;
       }
     } catch {
       /* ignore */
     }
-    this.saveCatalog(INITIAL_CATALOG);
-    return [...INITIAL_CATALOG];
+    return [];
   }
 
   saveMasterConfig(cfg: Partial<MasterCloudConfig>) {
@@ -650,29 +599,71 @@ class MasterCatalogService {
             });
           }
         }
+
+        // 3. Scan .zip multitrack files in Google Drive root folder
+        try {
+          let zipQ = "(name contains '.zip' or mimeType = 'application/zip' or mimeType = 'application/x-zip-compressed') and trashed = false";
+          if (rootFolderId.trim()) {
+            zipQ = `'${rootFolderId.trim()}' in parents and ${zipQ}`;
+          }
+          const zq = encodeURIComponent(zipQ);
+          const zUrl = `https://www.googleapis.com/drive/v3/files?q=${zq}&fields=files(id,name,size,webContentLink)&pageSize=100`;
+
+          const zResp = await cloudFetch(zUrl, {
+            authHeader: `Bearer ${token.trim()}`,
+          });
+
+          if (zResp.ok) {
+            const zData = await zResp.json();
+            const zipFiles: { id: string; name: string; size?: string }[] = zData.files || [];
+
+            for (const zf of zipFiles) {
+              const cleanName = zf.name.replace(/\.zip$/i, '');
+              let bpm = 72;
+              let key = 'G';
+              const bpmMatch = cleanName.match(/\b(\d{2,3})\s*bpm\b/i);
+              if (bpmMatch) bpm = parseInt(bpmMatch[1], 10);
+
+              const keyMatch = cleanName.match(/\b([A-G][#b]?m?)\b/);
+              if (keyMatch) key = keyMatch[1];
+
+              const parts = cleanName.split(' - ').map((s) => s.trim());
+              const title = parts[0] || cleanName;
+              const artist = parts[1] || 'Ministério de Louvor';
+
+              newSongs.push({
+                id: `gdrive_zip_${zf.id}`,
+                title,
+                artist,
+                bpm,
+                key,
+                beatsPerBar: 4,
+                durationSec: 280,
+                zipFileId: zf.id,
+                zipDownloadUrl: `https://www.googleapis.com/drive/v3/files/${zf.id}?alt=media`,
+                zipFileSize: zf.size ? parseInt(zf.size, 10) : undefined,
+                provider: 'gdrive',
+                addedAt: new Date().toISOString(),
+                stems: [],
+              });
+            }
+          }
+        } catch (zipErr) {
+          console.warn('Erro ao escanear pacotes ZIP no Google Drive:', zipErr);
+        }
       } catch (err) {
         onProgress?.(`❌ Erro no sync: ${(err as Error).message}`);
         throw err;
       }
     }
 
-    if (newSongs.length > 0) {
-      // Merge with existing catalog without duplicates
-      const merged = [...newSongs];
-      for (const cur of this.catalog) {
-        if (!merged.some((m) => m.id === cur.id || m.title.toLowerCase() === cur.title.toLowerCase())) {
-          merged.push(cur);
-        }
-      }
-      this.saveCatalog(merged);
-      this.saveMasterConfig({
-        lastSyncTime: new Date().toISOString(),
-        totalSyncedSongs: merged.length,
-      });
-      return { count: merged.length, songs: merged };
-    }
-
-    return { count: this.catalog.length, songs: this.catalog };
+    // Atualiza o catálogo diretamente com a lista atual do Google Drive
+    this.saveCatalog(newSongs);
+    this.saveMasterConfig({
+      lastSyncTime: new Date().toISOString(),
+      totalSyncedSongs: newSongs.length,
+    });
+    return { count: newSongs.length, songs: newSongs };
   }
 
   /**
@@ -692,6 +683,141 @@ class MasterCatalogService {
       string,
       { clickBuffer: AudioBuffer; guideBuffer: AudioBuffer; clickWav: ArrayBuffer; guideWav: ArrayBuffer }
     >();
+
+    // 1. Caso especial: Pacote MultiTrack .ZIP completo vindo do Google Drive
+    if (catalogSong.zipDownloadUrl) {
+      onProgress({
+        statusText: `Transferindo pacote ZIP de "${catalogSong.title}" do servidor central…`,
+        percent: 15,
+      });
+
+      const token = await this.getAccessToken();
+      const resp = await cloudFetch(catalogSong.zipDownloadUrl, {
+        authHeader: token ? `Bearer ${token.trim()}` : undefined,
+      });
+
+      if (!resp.ok) {
+        throw new Error(`Falha ao baixar pacote ZIP do Google Drive: HTTP ${resp.status}`);
+      }
+
+      onProgress({
+        statusText: 'A descompactar ficheiros de áudio…',
+        percent: 45,
+      });
+
+      const zipBuf = await resp.arrayBuffer();
+      const extracted = await processZipFile(
+        { name: `${catalogSong.title}.zip`, data: zipBuf },
+        (msg) => onProgress({ statusText: msg, percent: 60 }),
+      );
+
+      if (extracted.length === 0) {
+        throw new Error('Nenhum arquivo de áudio (.wav, .mp3, .m4a) encontrado dentro do pacote ZIP baixado.');
+      }
+
+      onProgress({
+        statusText: `Decodificando ${extracted.length} canais de áudio descompactados…`,
+        percent: 75,
+      });
+
+      let duration = 0;
+      for (let i = 0; i < extracted.length; i++) {
+        const it = extracted[i];
+        onProgress({
+          statusText: `Processando canal (${i + 1}/${extracted.length}): ${it.name}…`,
+          percent: Math.round(75 + (i / extracted.length) * 20),
+          currentTrackName: it.name,
+        });
+
+        const decoded = await decodeAudioDataSafe(ctx, it.data.slice(0));
+        if (isFinite(decoded.duration) && decoded.duration > 0) {
+          duration = Math.max(duration, decoded.duration);
+        }
+
+        const g = guessTrack(it.name, i, catalogSong.title);
+
+        if (
+          isCombinedClickGuide(it.name) ||
+          ((g.kind === 'click' || g.kind === 'guide') && isDualChannelClickGuide(decoded))
+        ) {
+          const split = splitStereoClickGuide(ctx, decoded);
+
+          const clickId = uid('tr_click');
+          await saveStem(songId, clickId, split.clickWav);
+          preloadedBuffers.set(clickId, split.clickBuffer);
+          initialTracks.push({
+            id: clickId,
+            name: 'CLICK (Áudio Original)',
+            color: '#F39C12',
+            kind: 'audio',
+            bus: 'UTILITY',
+            output: 'OUT_6',
+            volume: 0.75,
+            pan: 0,
+            mute: false,
+            solo: false,
+            fileName: it.name,
+          });
+
+          const guideId = uid('tr_guide');
+          await saveStem(songId, guideId, split.guideWav);
+          preloadedBuffers.set(guideId, split.guideBuffer);
+          initialTracks.push({
+            id: guideId,
+            name: 'GUIDE (Áudio Original)',
+            color: '#0099FF',
+            kind: 'audio',
+            bus: 'UTILITY',
+            output: 'OUT_5',
+            volume: 0.9,
+            pan: 0,
+            mute: false,
+            solo: false,
+            fileName: it.name,
+          });
+        } else {
+          const trId = uid('tr');
+          await saveStem(songId, trId, it.data);
+          preloadedBuffers.set(trId, decoded);
+          initialTracks.push({
+            id: trId,
+            name: g.name,
+            color: g.color,
+            kind: g.kind,
+            bus: g.bus,
+            output: g.output,
+            volume: g.kind === 'click' ? 0.75 : 0.85,
+            pan: 0,
+            mute: false,
+            solo: false,
+            fileName: it.name,
+          });
+        }
+      }
+
+      const song: Song & { _preloadedBuffers: Map<string, AudioBuffer> } = {
+        id: songId,
+        name: catalogSong.title,
+        artist: catalogSong.artist,
+        bpm: catalogSong.bpm,
+        key: catalogSong.key,
+        pitchOffset: 0,
+        beatsPerBar: catalogSong.beatsPerBar || 4,
+        firstBeat: 0,
+        duration: Math.round(duration || catalogSong.durationSec || 240),
+        guideMode: 'REANNOUNCE',
+        sections: [],
+        tracks: orderTracksForStage(initialTracks),
+        source: 'import',
+        _preloadedBuffers: preloadedBuffers,
+      };
+
+      song.sections = detectSectionsFromAudio(song);
+      song.chordChart = generateChordChartForSong(song, 'modern');
+
+      onProgress({ statusText: `✅ "${song.name}" importada com sucesso!`, percent: 100 });
+      return song;
+    }
 
     onProgress({
       statusText: `Iniciando download de "${catalogSong.title}" (${catalogSong.stems.length} faixas do servidor central)…`,
@@ -761,9 +887,9 @@ class MasterCatalogService {
                 preloadedBuffers.set(otherId, otherBuf);
                 initialTracks.push({
                   id: otherId,
-                  name: isClick ? 'GUIA' : 'CLICK',
+                  name: isClick ? 'GUIDE (Áudio Original)' : 'CLICK (Áudio Original)',
                   color: isClick ? '#0099FF' : '#F39C12',
-                  kind: otherKind,
+                  kind: 'audio',
                   bus: 'UTILITY',
                   output: isClick ? 'OUT_5' : 'OUT_6',
                   volume: isClick ? 0.9 : 0.75,
@@ -794,53 +920,27 @@ class MasterCatalogService {
       await saveStem(songId, trId, rawArrayBuffer);
       preloadedBuffers.set(trId, audioBuffer);
 
+      let finalName = stem.name;
+      const lowStem = stem.name.toLowerCase();
+      if ((stem.kind === 'click' || lowStem.includes('click') || lowStem.includes('clique')) && !finalName.includes('(Áudio Original)')) {
+        finalName = 'CLICK (Áudio Original)';
+      } else if ((stem.kind === 'guide' || lowStem.includes('guide') || lowStem.includes('guia') || lowStem.includes('cue')) && !finalName.includes('(Áudio Original)')) {
+        finalName = 'GUIDE (Áudio Original)';
+      }
+
       initialTracks.push({
         id: trId,
-        name: stem.name,
+        name: finalName,
         color: this.getStemColor(stem),
-        kind: stem.kind,
+        kind: 'audio',
         bus: stem.bus || (stem.kind === 'click' || stem.kind === 'guide' ? 'UTILITY' : 'KEYS'),
-        output: stem.output || (stem.kind === 'click' ? 'OUT_6' : stem.kind === 'guide' ? 'OUT_5' : 'OUT_1_2'),
-        volume: stem.kind === 'click' ? 0.75 : 0.85,
+        output: stem.output || (stem.kind === 'click' || finalName.includes('CLICK') ? 'OUT_6' : stem.kind === 'guide' || finalName.includes('GUIDE') ? 'OUT_5' : 'OUT_1_2'),
+        volume: stem.kind === 'click' || finalName.includes('CLICK') ? 0.75 : 0.85,
         pan: 0,
         mute: false,
         solo: false,
         pitchShift: stem.kind === 'audio' && stem.bus !== 'DRUMS',
         fileName: stem.fileName,
-      });
-    }
-
-    // Ensure Click exists
-    if (!initialTracks.some((t) => t.kind === 'click')) {
-      initialTracks.push({
-        id: uid('click'),
-        name: 'CLICK',
-        color: '#F39C12',
-        kind: 'click',
-        bus: 'UTILITY',
-        output: 'OUT_6',
-        volume: 0.75,
-        pan: 0,
-        mute: false,
-        solo: false,
-        pitchShift: false,
-      });
-    }
-
-    // Ensure Guide exists
-    if (!initialTracks.some((t) => t.kind === 'guide')) {
-      initialTracks.push({
-        id: uid('guide'),
-        name: 'GUIA',
-        color: '#0099FF',
-        kind: 'guide',
-        bus: 'UTILITY',
-        output: 'OUT_5',
-        volume: 0.9,
-        pan: 0,
-        mute: false,
-        solo: false,
-        pitchShift: false,
       });
     }
 

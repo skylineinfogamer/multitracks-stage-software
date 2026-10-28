@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import JSZip from 'jszip';
 import type { BusGroup, OutputBus, Song, Track, TrackKind } from '../types';
 import { KEYS, guessTrack, orderTracksForStage, uid } from '../music';
 import { decodeAudioDataSafe, isValidAudioCandidate, saveStem } from '../storage';
 import { isCombinedClickGuide, isDualChannelClickGuide, splitStereoClickGuide } from '../audio/audioSeparation';
+import { processZipFile } from '../utils/zipExtractor';
 import {
   type KeyDetectionResult,
   detectKeyAndBpmFromFiles,
@@ -66,32 +66,25 @@ export function ImportDialog({ ctx, onClose, onImported }: Props) {
     const rawList = Array.from(files);
     const audioCandidates: Array<{ name: string; data: ArrayBuffer }> = [];
 
-    setBusy('Lendo e extraindo arquivos de áudio…');
+    setBusy('A descompactar ficheiros de áudio…');
     try {
       for (const f of rawList) {
         if (f.name.toLowerCase().endsWith('.zip')) {
           try {
-            // Read zip buffer immediately
-            const zipBuf = await f.arrayBuffer();
-            const zip = await JSZip.loadAsync(zipBuf);
-            const entries = Object.keys(zip.files);
-            for (const en of entries) {
-              const ze = zip.files[en];
-              if (ze.dir) continue;
-              const bName = en.split('/').pop() || en;
-              if (bName.startsWith('.') || en.includes('__MACOSX')) continue;
-              if (/\.(wav|wave|mp3|m4a|aac|ogg|flac|aif|aiff)$/i.test(bName)) {
-                // Read ArrayBuffer directly into memory immediately, preventing any file-locking issues
-                const buf = await ze.async('arraybuffer');
-                audioCandidates.push({ name: bName, data: buf });
-              }
+            setBusy('A descompactar ficheiros de áudio…');
+            const extracted = await processZipFile(f, (msg) => setBusy(msg));
+            for (const cand of extracted) {
+              audioCandidates.push(cand);
             }
             if (!name) {
-              const cleanZip = f.name.replace(/\.zip$/i, '').replace(/[-_]?(multitrack|vs|stems|tracks)/i, '').trim();
+              const cleanZip = f.name
+                .replace(/\.zip$/i, '')
+                .replace(/[-_]?(multitrack|vs|stems|tracks)/i, '')
+                .trim();
               setName(cleanZip);
             }
           } catch (err) {
-            console.warn('Falha ao descompactar ZIP local:', err);
+            console.warn('Falha ao descompactar ZIP:', err);
           }
         } else if (isValidAudioCandidate(f)) {
           try {
@@ -172,9 +165,9 @@ export function ImportDialog({ ctx, onClose, onImported }: Props) {
             preloadedBuffers.set(clickId, split.clickBuffer);
             tracks.push({
               id: clickId,
-              name: 'CLICK',
+              name: 'CLICK (Áudio Original)',
               color: '#F39C12',
-              kind: 'click',
+              kind: 'audio',
               bus: 'UTILITY',
               output: 'OUT_6',
               volume: 0.75,
@@ -190,9 +183,9 @@ export function ImportDialog({ ctx, onClose, onImported }: Props) {
             preloadedBuffers.set(guideId, split.guideBuffer);
             tracks.push({
               id: guideId,
-              name: 'GUIA',
+              name: 'GUIDE (Áudio Original)',
               color: '#0099FF',
-              kind: 'guide',
+              kind: 'audio',
               bus: 'UTILITY',
               output: 'OUT_5',
               volume: 0.9,
@@ -243,38 +236,6 @@ export function ImportDialog({ ctx, onClose, onImported }: Props) {
 
       if (!duration || duration < 5) duration = 240;
 
-      // Always ensure Click exists on OUT_6 (Fones Click)
-      if (!tracks.some((t) => t.kind === 'click')) {
-        tracks.push({
-          id: uid('click'),
-          name: 'CLICK',
-          color: '#F39C12',
-          kind: 'click',
-          bus: 'UTILITY',
-          output: 'OUT_6',
-          volume: 0.75,
-          pan: 0,
-          mute: false,
-          solo: false,
-        });
-      }
-
-      // Always ensure Guide exists on OUT_5 (Fones Guia)
-      if (!tracks.some((t) => t.kind === 'guide')) {
-        tracks.push({
-          id: uid('guide'),
-          name: 'GUIA',
-          color: '#0099FF',
-          kind: 'guide',
-          bus: 'UTILITY',
-          output: 'OUT_5',
-          volume: 0.9,
-          pan: 0,
-          mute: false,
-          solo: false,
-        });
-      }
-
       const baseSong: Song & { _preloadedBuffers?: Map<string, AudioBuffer> } = {
         id: songId,
         name: name || items[0].fileName.replace(/\.[^.]+$/, ''),
@@ -321,6 +282,42 @@ export function ImportDialog({ ctx, onClose, onImported }: Props) {
         </>
       }
     >
+      {/* Indicador de Carregamento Nativo durante descompactação ou processamento */}
+      {busy && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(13, 14, 17, 0.92)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            gap: 16,
+            borderRadius: 12,
+            padding: 24,
+          }}
+        >
+          <div
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: '50%',
+              border: '4px solid #1f242d',
+              borderTopColor: '#0099FF',
+              animation: 'spin 0.8s linear infinite',
+            }}
+          />
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#f8fafc', textAlign: 'center' }}>
+            {busy}
+          </div>
+          <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
+            Descompactação de alta performance em Rust e mapeamento de áudios
+          </div>
+        </div>
+      )}
       {(detecting || aiInfo) && (
         <div className="ai-import-banner">
           <IconSparkles size={16} />

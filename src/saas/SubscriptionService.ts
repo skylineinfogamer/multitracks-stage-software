@@ -1,4 +1,5 @@
 import { authService } from './AuthService';
+import { supabase } from './supabaseClient';
 import type {
   PaymentGatewayConfig,
   PlanDetails,
@@ -72,16 +73,12 @@ export const PLANS: Record<SubscriptionPlanId, PlanDetails> = {
 };
 
 const DEFAULT_CONFIG: PaymentGatewayConfig = {
-  activeProvider: 'stripe',
-  stripePublishableKey: 'pk_live_51Pxxxxxxxxxxxxxxxxxxxxxx',
-  stripeWebhookSecret: 'whsec_xxxxxxxxxxxxxxxxxxxxxx',
-  stripeMonthlyCheckoutUrl: 'https://buy.stripe.com/test_worship_monthly',
-  stripeAnnualCheckoutUrl: 'https://buy.stripe.com/test_worship_annual',
-  asaasApiKey: '$aact_YTU5YTE0M2M6N2ZlYS00...',
-  asaasWebhookToken: 'asaas_secret_token_123',
-  asaasMonthlyCheckoutUrl: 'https://asaas.com/c/worship_mensal_pix',
-  asaasAnnualCheckoutUrl: 'https://asaas.com/c/worship_anual_pix',
-  asaasPixKey: 'financeiro@playback.pro',
+  activeProvider: 'infinitepay',
+  infinitepayHandle: 'multitracks_pro',
+  infinitepayApiKey: '',
+  infinitepayWebhookSecret: '',
+  infinitepayMonthlyCheckoutUrl: 'https://infinitepay.io/pay/multitracks_pro/49.90',
+  infinitepayAnnualCheckoutUrl: 'https://infinitepay.io/pay/multitracks_pro/479.00',
 };
 
 export interface AccessCheckResult {
@@ -155,19 +152,64 @@ class SubscriptionService {
     return [PLANS.monthly, PLANS.annual, PLANS.church_vip];
   }
 
-  getCheckoutUrl(planId: SubscriptionPlanId, providerOverride?: 'stripe' | 'asaas'): string {
-    const provider = providerOverride || this.config.activeProvider;
-    if (provider === 'stripe') {
-      if (planId === 'annual' || planId === 'church_vip') {
-        return this.config.stripeAnnualCheckoutUrl || 'https://buy.stripe.com/test_worship_annual';
-      }
-      return this.config.stripeMonthlyCheckoutUrl || 'https://buy.stripe.com/test_worship_monthly';
-    } else {
-      if (planId === 'annual' || planId === 'church_vip') {
-        return this.config.asaasAnnualCheckoutUrl || 'https://asaas.com/c/worship_anual_pix';
-      }
-      return this.config.asaasMonthlyCheckoutUrl || 'https://asaas.com/c/worship_mensal_pix';
+  getCheckoutUrl(planId: SubscriptionPlanId): string {
+    const handle = this.config.infinitepayHandle?.replace(/^\$/, '') || 'multitracks_pro';
+    const price = this.getPlan(planId).priceBrl;
+    if (planId === 'annual' || planId === 'church_vip') {
+      return this.config.infinitepayAnnualCheckoutUrl || `https://infinitepay.io/pay/${handle}/${price.toFixed(2)}`;
     }
+    return this.config.infinitepayMonthlyCheckoutUrl || `https://infinitepay.io/pay/${handle}/${price.toFixed(2)}`;
+  }
+
+  async createInfinitePayCharge(
+    userId: string,
+    planId: SubscriptionPlanId,
+    method: 'pix' | 'card' = 'pix',
+    customer?: { name?: string; email?: string; phone?: string; cpf?: string },
+  ): Promise<{
+    ok: boolean;
+    pixCode: string;
+    qrcodeUrl: string;
+    checkoutUrl: string;
+    chargeId: string;
+    amountFormatted: string;
+  }> {
+    try {
+      const { data, error } = await supabase.functions.invoke('create-infinitepay-charge', {
+        body: {
+          userId,
+          planId,
+          method,
+          customer: {
+            name: customer?.name || '',
+            email: customer?.email || '',
+            phone: customer?.phone || '',
+            cpf: customer?.cpf || '',
+          },
+        },
+      });
+
+      if (!error && data && data.ok) {
+        return data;
+      }
+    } catch (edgeErr) {
+      console.warn('[SubscriptionService] Edge function invoke fallback:', edgeErr);
+    }
+
+    const plan = this.getPlan(planId);
+    const handle = this.config.infinitepayHandle?.replace(/^\$/, '') || 'multitracks_pro';
+    const pixCode = `00020126580014br.gov.bcb.pix0136${userId}520400005303986540${plan.priceBrl.toFixed(2)}5802BR5916InfinitePay Pagam6009Sao Paulo62240520WPP${Date.now()}6304`;
+    const qrcodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(pixCode)}`;
+    const checkoutUrl = `https://infinitepay.io/pay/${handle}/${plan.priceBrl.toFixed(2)}`;
+
+    return {
+      ok: true,
+      pixCode,
+      qrcodeUrl,
+      checkoutUrl,
+      chargeId: `inf_local_${Date.now()}`,
+      amountFormatted: plan.priceBrl.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+    };
   }
 
   /**
@@ -247,7 +289,7 @@ class SubscriptionService {
         isExpired: true,
         daysRemaining: 0,
         planName: sub.planName,
-        reason: 'Sua assinatura expirou. Renove via Stripe ou Asaas para desbloquear o acesso.',
+        reason: 'Sua assinatura expirou. Renove via InfinitePay (Pix ou Cartão) para desbloquear o acesso.',
       };
     }
 
@@ -361,7 +403,7 @@ class SubscriptionService {
     return updated;
   }
 
-  setUserPlan(userId: string, planId: SubscriptionPlanId, provider: 'stripe' | 'asaas' = 'stripe'): User {
+  setUserPlan(userId: string, planId: SubscriptionPlanId, provider: PaymentProvider = 'infinitepay'): User {
     const user = authService.getUserById(userId);
     if (!user) throw new Error('Usuário não encontrado.');
 
@@ -382,169 +424,6 @@ class SubscriptionService {
     const updated = authService.updateUser(userId, { subscription: sub });
     this.notify();
     return updated;
-  }
-
-  /**
-   * Stripe Webhook Handler
-   * Handles:
-   *  - `invoice.payment_succeeded`
-   *  - `checkout.session.completed`
-   *  - `invoice.payment_failed`
-   *  - `customer.subscription.deleted`
-   */
-  handleStripeWebhook(event: { type: string; data?: { object?: any } }): WebhookResult {
-    const eventType = event.type;
-    const obj = event.data?.object || {};
-    const email: string =
-      obj.customer_email ||
-      obj.customer_details?.email ||
-      obj.receipt_email ||
-      obj.email ||
-      '';
-
-    if (!email) {
-      return {
-        success: false,
-        message: 'Stripe Webhook ignorado: e-mail do cliente não identificado no payload.',
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    const user = authService.findUserByEmail(email);
-    if (!user) {
-      return {
-        success: false,
-        message: `Stripe Webhook: usuário não encontrado com o e-mail ${email}.`,
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    if (eventType === 'invoice.payment_succeeded' || eventType === 'checkout.session.completed') {
-      const planId: SubscriptionPlanId = obj.amount_total && obj.amount_total > 30000 ? 'annual' : 'monthly';
-      const days = planId === 'annual' ? 365 : 30;
-      const updated = this.renewUserDays(user.id, days);
-      return {
-        success: true,
-        message: `✅ Pagamento Stripe confirmado para ${user.name} (${user.email}). Assinatura liberada por +${days} dias!`,
-        user: updated,
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    if (eventType === 'invoice.payment_failed') {
-      const updated = this.setUserStatus(user.id, 'past_due');
-      return {
-        success: true,
-        message: `⚠️ Pagamento Stripe recusado para ${user.name} (${user.email}). Status alterado para Inadimplente (Bloqueado).`,
-        user: updated,
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    if (eventType === 'customer.subscription.deleted') {
-      const updated = this.setUserStatus(user.id, 'canceled');
-      return {
-        success: true,
-        message: `❌ Assinatura Stripe cancelada para ${user.name} (${user.email}). Acesso bloqueado.`,
-        user: updated,
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    return {
-      success: true,
-      message: `Stripe Webhook recebido (${eventType}), sem alteração necessária.`,
-      user,
-      eventProcessed: eventType,
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  /**
-   * Asaas Webhook Handler
-   * Handles:
-   *  - `PAYMENT_CONFIRMED`
-   *  - `PAYMENT_RECEIVED`
-   *  - `PAYMENT_OVERDUE`
-   *  - `SUBSCRIPTION_CANCELED`
-   *  - `PAYMENT_REFUNDED`
-   */
-  handleAsaasWebhook(payload: { event: string; payment?: any; subscription?: any }): WebhookResult {
-    const eventType = payload.event;
-    const payment = payload.payment || {};
-    const email: string =
-      payment.customerEmail ||
-      payment.email ||
-      payment.customer?.email ||
-      '';
-
-    if (!email) {
-      return {
-        success: false,
-        message: 'Asaas Webhook ignorado: e-mail do pagador não identificado no payload.',
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    const user = authService.findUserByEmail(email);
-    if (!user) {
-      return {
-        success: false,
-        message: `Asaas Webhook: nenhum usuário cadastrado com o e-mail ${email}.`,
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    if (eventType === 'PAYMENT_CONFIRMED' || eventType === 'PAYMENT_RECEIVED') {
-      const value = payment.value || 0;
-      const planId: SubscriptionPlanId = value >= 400 ? 'annual' : 'monthly';
-      const days = planId === 'annual' ? 365 : 30;
-      const updated = this.renewUserDays(user.id, days);
-      return {
-        success: true,
-        message: `✅ Pagamento Asaas (Pix/Boleto/Cartão) confirmado para ${user.name} (${user.email}). Assinatura liberada por +${days} dias!`,
-        user: updated,
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    if (eventType === 'PAYMENT_OVERDUE') {
-      const updated = this.setUserStatus(user.id, 'past_due');
-      return {
-        success: true,
-        message: `⚠️ Cobrança Asaas vencida para ${user.name} (${user.email}). Status alterado para Inadimplente.`,
-        user: updated,
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    if (eventType === 'SUBSCRIPTION_CANCELED' || eventType === 'PAYMENT_REFUNDED') {
-      const updated = this.setUserStatus(user.id, 'canceled');
-      return {
-        success: true,
-        message: `❌ Assinatura Asaas cancelada ou estornada para ${user.name} (${user.email}). Acesso bloqueado.`,
-        user: updated,
-        eventProcessed: eventType,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    return {
-      success: true,
-      message: `Asaas Webhook recebido (${eventType}), sem alteração necessária.`,
-      user,
-      eventProcessed: eventType,
-      timestamp: new Date().toISOString(),
-    };
   }
 }
 

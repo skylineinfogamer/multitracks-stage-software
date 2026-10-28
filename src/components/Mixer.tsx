@@ -15,11 +15,19 @@ interface Props {
   clickSubdivision?: ClickSubdivision;
   clickSound?: ClickSound;
   autonomousClick?: boolean;
+  internalClickVolume?: number;
+  internalClickMute?: boolean;
+  internalClickOutput?: OutputBus;
+  autoGuideOutput?: OutputBus;
   onToggleAutonomousClick?: () => void;
   onClickSubdivision?: (sub: ClickSubdivision) => void;
   onClickSound?: (snd: ClickSound) => void;
+  onInternalClickVolume?: (v: number) => void;
+  onInternalClickMute?: () => void;
+  onInternalClickOutput?: (out: OutputBus) => void;
   onAutoGuideVolume: (v: number) => void;
   onAutoGuideMute: () => void;
+  onAutoGuideOutput?: (out: OutputBus) => void;
   onTestAutoGuide: () => void;
   onMasterVolume: (v: number) => void;
   onTrack: (id: string, patch: Partial<Track>) => void;
@@ -49,11 +57,19 @@ export function Mixer({
   clickSubdivision = '1/4',
   clickSound = 'woodblock',
   autonomousClick,
+  internalClickVolume = 0.75,
+  internalClickMute = false,
+  internalClickOutput = 'OUT_6',
+  autoGuideOutput = 'OUT_5',
   onToggleAutonomousClick,
   onClickSubdivision,
   onClickSound,
+  onInternalClickVolume,
+  onInternalClickMute,
+  onInternalClickOutput,
   onAutoGuideVolume,
   onAutoGuideMute,
+  onAutoGuideOutput,
   onTestAutoGuide,
   onMasterVolume,
   onTrack,
@@ -82,22 +98,20 @@ export function Mixer({
           const [l, r] = engine.masterPeaks();
           peak = id === '__L' ? l : r;
         } else if (id === '__AUTO_GUIDE') {
-          peak =
+          const hwPeak = engine.trackPeak('__AUTO_GUIDE');
+          peak = Math.max(
+            hwPeak,
             !autoGuideMuteRef.current && guideRef.current
               ? (0.58 + Math.random() * 0.28) * autoGuideVolRef.current
-              : 0;
-        } else if (id.startsWith('guide:')) {
-          const realId = id.slice(6);
-          const realPeak = engine.trackPeak(realId);
-          peak = Math.max(realPeak, guideRef.current ? 0.55 + Math.random() * 0.25 : 0);
+              : 0,
+          );
+        } else if (id === '__INTERNAL_CLICK') {
+          peak = engine.trackPeak('__INTERNAL_CLICK');
         } else if (id.startsWith('bus:')) {
           const busId = id.slice(4) as BusGroup;
           const tracks = songRef.current?.tracks.filter((t) => (t.bus ?? 'KEYS') === busId) ?? [];
           for (const tr of tracks) {
-            const p =
-              tr.kind === 'guide'
-                ? Math.max(engine.trackPeak(tr.id), guideRef.current ? 0.6 : 0)
-                : engine.trackPeak(tr.id);
+            const p = engine.trackPeak(tr.id);
             if (p > peak) peak = p;
           }
         } else {
@@ -118,33 +132,10 @@ export function Mixer({
 
   if (!song) return <div className="mixer empty">Carregue uma música para ver o mixer.</div>;
   const anySolo = song.tracks.some((t) => t.solo);
-  const clickTrack = song.tracks.find((t) => t.kind === 'click') || {
-    id: 'click',
-    name: 'CLICK',
-    color: '#F39C12',
-    kind: 'click' as const,
-    bus: 'UTILITY' as const,
-    output: 'OUT_6' as OutputBus,
-    volume: 0.75,
-    pan: 0,
-    mute: false,
-    solo: false,
-  };
-  const guideTrack = song.tracks.find((t) => t.kind === 'guide') || {
-    id: 'guide',
-    name: 'GUIA',
-    color: '#0099FF',
-    kind: 'guide' as const,
-    bus: 'UTILITY' as const,
-    output: 'OUT_5' as OutputBus,
-    volume: autoGuideVolume ?? 0.9,
-    pan: 0,
-    mute: autoGuideMute ?? false,
-    solo: false,
-  };
-  const stemTracks = song.tracks.filter((t) => t.kind !== 'click' && t.kind !== 'guide');
-  const hasRecordedClick = Boolean(clickTrack?.fileName);
-  const hasRecordedGuide = Boolean(guideTrack?.fileName);
+
+  // ALL tracks uploaded by the user are rendered in the main channel strips!
+  // No user tracks (such as original audio click or guide stems) are filtered out!
+  const stemTracks = song.tracks;
 
   const setMeter = (id: string) => (el: HTMLDivElement | null) => {
     if (el) meters.current.set(id, el);
@@ -153,16 +144,17 @@ export function Mixer({
 
   return (
     <div className="mixer">
-      {/* Pinned Left Utility Channels: CLICK & GUIDE (Separated by vertical divider) */}
+      {/* Pinned Left Utility Channels: Standalone Software Metronome & Software Guide IA */}
       <div className="pinned-left-strips">
+        {/* Pinned Left Channel 1: CLICK DO SOFTWARE / METRÔNOMO AUTÔNOMO */}
         <div
-          className={`strip utility-strip ${clickTrack.mute ? 'dimmed' : ''}`}
+          className={`strip utility-strip ${internalClickMute ? 'dimmed' : ''}`}
           style={{ ['--c' as string]: '#F39C12' }}
         >
-          <div className="strip-name" title="Metrônomo / Click Track (Canal Isolado)">
+          <div className="strip-name" title="Metrônomo do Software / Click Autônomo">
             <span className="strip-icon">⏱</span> CLICK
             <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(243, 156, 18, 0.2)', color: '#f59e0b', fontWeight: 800 }}>
-              {hasRecordedClick ? 'STEM' : 'METRÔNOMO'}
+              SOFTWARE
             </span>
           </div>
           <button
@@ -208,35 +200,28 @@ export function Mixer({
               min={0}
               max={1.2}
               step={0.005}
-              value={clickTrack.volume}
-              onChange={(e) => onTrack(clickTrack.id, { volume: parseFloat(e.target.value) })}
-              onDoubleClick={() => onTrack(clickTrack.id, { volume: 0.75 })}
+              value={internalClickVolume}
+              onChange={(e) => onInternalClickVolume?.(parseFloat(e.target.value))}
+              onDoubleClick={() => onInternalClickVolume?.(0.75)}
             />
             <div className="meter">
-              <div className="meter-fill" ref={setMeter(clickTrack.id)} />
+              <div className="meter-fill" ref={setMeter('__INTERNAL_CLICK')} />
             </div>
           </div>
           <div className="strip-btns">
             <button
-              className={`m ${clickTrack.mute ? 'on' : ''}`}
-              title="Mute Click"
-              onClick={() => onTrack(clickTrack.id, { mute: !clickTrack.mute })}
+              className={`m ${internalClickMute ? 'on' : ''}`}
+              title="Mute Click do Software"
+              onClick={onInternalClickMute}
             >
               M
-            </button>
-            <button
-              className={`s ${clickTrack.solo ? 'on' : ''}`}
-              title="Solo Click"
-              onClick={() => onTrack(clickTrack.id, { solo: !clickTrack.solo })}
-            >
-              S
             </button>
           </div>
           <select
             className="bus-select"
-            value={clickTrack.output ?? 'OUT_6'}
-            onChange={(e) => onTrack(clickTrack.id, { output: e.target.value as OutputBus })}
-            title="Saída Física do Click (Fones In-Ear)"
+            value={internalClickOutput}
+            onChange={(e) => onInternalClickOutput?.(e.target.value as OutputBus)}
+            title="Saída Física do Click do Software (Padrão: Out 6 Fones Click)"
           >
             {OUTPUT_BUSES.map((b) => (
               <option key={b.id} value={b.id}>
@@ -244,20 +229,20 @@ export function Mixer({
               </option>
             ))}
           </select>
-          <div className="strip-db">{toDb(clickTrack.volume)} dB</div>
+          <div className="strip-db">{toDb(internalClickVolume)} dB</div>
           <div className="strip-color" style={{ background: '#F39C12' }} />
         </div>
 
-        {/* Pinned Left Channel 2: GUIDE (Voz Guia Dinâmica) */}
+        {/* Pinned Left Channel 2: GUIA IA DO SOFTWARE (Voz Guia Dinâmica) */}
         <div
-          className={`strip utility-strip guide-auto ${autoGuideMute || guideTrack?.mute ? 'dimmed' : ''}`}
+          className={`strip utility-strip guide-auto ${autoGuideMute ? 'dimmed' : ''}`}
           style={{ ['--c' as string]: '#0099FF' }}
-          title="Canal da Contagem e Chamada Dinâmica de Seções (Voz Guia)"
+          title="Canal da Contagem e Chamada Dinâmica de Seções (Voz Guia IA)"
         >
           <div className="strip-name" style={{ color: '#38bdf8' }}>
             <span className="strip-icon">🎙</span> GUIDE
             <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0, 153, 255, 0.2)', color: '#38bdf8', fontWeight: 800 }}>
-              {hasRecordedGuide ? 'STEM' : 'VOZ IA'}
+              VOZ IA
             </span>
           </div>
           <button
@@ -275,44 +260,27 @@ export function Mixer({
               max={1.2}
               step={0.005}
               value={autoGuideVolume}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                onAutoGuideVolume(v);
-                if (guideTrack) onTrack(guideTrack.id, { volume: v });
-              }}
-              onDoubleClick={() => {
-                onAutoGuideVolume(0.9);
-                if (guideTrack) onTrack(guideTrack.id, { volume: 0.9 });
-              }}
+              onChange={(e) => onAutoGuideVolume(parseFloat(e.target.value))}
+              onDoubleClick={() => onAutoGuideVolume(0.9)}
             />
             <div className="meter">
-              <div className="meter-fill" ref={setMeter(guideTrack ? `guide:${guideTrack.id}` : '__AUTO_GUIDE')} />
+              <div className="meter-fill" ref={setMeter('__AUTO_GUIDE')} />
             </div>
           </div>
           <div className="strip-btns">
             <button
-              className={`m ${autoGuideMute || guideTrack?.mute ? 'on' : ''}`}
-              title="Mute Guide (Silenciar Voz Guia)"
-              onClick={() => {
-                onAutoGuideMute();
-                if (guideTrack) onTrack(guideTrack.id, { mute: !autoGuideMute });
-              }}
+              className={`m ${autoGuideMute ? 'on' : ''}`}
+              title="Mute Guide IA (Silenciar Voz Guia Dinâmica)"
+              onClick={onAutoGuideMute}
             >
               M
-            </button>
-            <button
-              className={`s ${guideTrack?.solo ? 'on' : ''}`}
-              title="Solo Guide"
-              onClick={() => guideTrack && onTrack(guideTrack.id, { solo: !guideTrack.solo })}
-            >
-              S
             </button>
           </div>
           <select
             className="bus-select"
-            value={guideTrack.output ?? 'OUT_5'}
-            onChange={(e) => onTrack(guideTrack.id, { output: e.target.value as OutputBus })}
-            title="Saída Física da Guia (Fones In-Ear)"
+            value={autoGuideOutput}
+            onChange={(e) => onAutoGuideOutput?.(e.target.value as OutputBus)}
+            title="Saída Física da Voz Guia IA (Padrão: Out 5 Fones Guia)"
           >
             {OUTPUT_BUSES.map((b) => (
               <option key={b.id} value={b.id}>

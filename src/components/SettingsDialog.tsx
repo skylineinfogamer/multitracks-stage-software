@@ -21,9 +21,21 @@ interface Props {
   onChange: (p: Partial<Settings>) => void;
   onClose: () => void;
   onOpenRemote?: () => void;
+  onCheckForUpdates?: () => void;
+  isCheckingUpdates?: boolean;
 }
 
-export function SettingsDialog({ settings, engine, sections = [], onTestGuideVoice, onChange, onClose, onOpenRemote }: Props) {
+export function SettingsDialog({
+  settings,
+  engine,
+  sections = [],
+  onTestGuideVoice,
+  onChange,
+  onClose,
+  onOpenRemote,
+  onCheckForUpdates,
+  isCheckingUpdates,
+}: Props) {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [dlStatus, setDlStatus] = useState<string | null>(null);
@@ -266,6 +278,65 @@ export function SettingsDialog({ settings, engine, sections = [], onTestGuideVoi
               }}
             >
               📱 Abrir QR Code & Link
+            </button>
+          )}
+        </div>
+
+        {/* AUTO-UPDATER & VERSION INFO */}
+        <div
+          style={{
+            marginBottom: 20,
+            padding: '14px 18px',
+            backgroundColor: '#16181E',
+            border: '1px solid #2E323B',
+            borderRadius: 10,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#FFFFFF' }}>
+                🚀 Worship Tools
+              </span>
+              <span
+                style={{
+                  fontSize: 10.5,
+                  background: 'rgba(0, 153, 255, 0.2)',
+                  color: '#38BDF8',
+                  padding: '2px 8px',
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  border: '1px solid rgba(0, 153, 255, 0.3)',
+                }}
+              >
+                Versão 1.0.0
+              </span>
+            </div>
+            <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+              Atualizações automáticas integradas via GitHub Releases com verificação de integridade digital.
+            </div>
+          </div>
+          {onCheckForUpdates && (
+            <button
+              className="btn small"
+              disabled={isCheckingUpdates}
+              style={{
+                backgroundColor: '#1F242D',
+                borderColor: '#2E323B',
+                color: '#E5E7EB',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: isCheckingUpdates ? 'wait' : 'pointer',
+              }}
+              onClick={onCheckForUpdates}
+            >
+              {isCheckingUpdates ? '🔄 Verificando…' : '🔄 Verificar Atualizações'}
             </button>
           )}
         </div>

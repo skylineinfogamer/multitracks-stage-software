@@ -59,26 +59,6 @@ const DEFAULT_USERS: StoredUserRecord[] = [
       lastPaymentDate: new Date().toISOString(),
     },
   },
-  {
-    id: 'usr_musico',
-    name: 'Músico de Louvor',
-    email: 'musico@igreja.com',
-    passwordHash: btoa('123456'),
-    role: 'user',
-    status: 'active',
-    churchName: 'Igreja Local',
-    createdAt: new Date().toISOString(),
-    subscription: {
-      planId: 'monthly',
-      planName: 'Plano Worship Mensal',
-      status: 'active',
-      provider: 'stripe',
-      currentPeriodEnd: new Date(Date.now() + 28 * 24 * 60 * 60 * 1000).toISOString(),
-      priceBrl: 49.90,
-      billingCycle: 'monthly',
-      lastPaymentDate: new Date().toISOString(),
-    },
-  },
 ];
 
 class AuthService {
@@ -101,9 +81,23 @@ class AuthService {
         this.saveUsers();
       }
 
-      // Ensure all users have status and subscriptions
-      let modified = false;
+      // Purge legacy mock users (e.g. usr_musico) and ensure ONLY the 2 master accounts can be admin
+      const initialLen = this.users.length;
+      this.users = this.users.filter((u) => u.id !== 'usr_musico' && u.email.toLowerCase() !== 'musico@igreja.com');
+      let modified = this.users.length !== initialLen;
+
       for (const u of this.users) {
+        const email = u.email.toLowerCase().trim();
+        const isMaster =
+          email === 'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com' ||
+          email === 'admin@playback.pro' ||
+          u.id === 'usr_admin' ||
+          u.id === 'usr_admin_alias';
+
+        if (!isMaster && u.role === 'admin') {
+          u.role = 'user';
+          modified = true;
+        }
         if (!u.status) {
           u.status = u.role === 'admin' ? 'active' : 'active';
           modified = true;
@@ -229,7 +223,7 @@ class AuthService {
       email.toLowerCase() === 'admin@playback.pro' ||
       email.toLowerCase() === 'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com';
 
-    const role: UserRole = profile?.role || (isAdminEmail ? 'admin' : (sbUser.user_metadata?.role as UserRole) || 'user');
+    const role: UserRole = isAdminEmail ? 'admin' : 'user';
     const status: UserApprovalStatus =
       role === 'admin'
         ? 'active'
@@ -271,7 +265,7 @@ class AuthService {
               planId: 'monthly',
               planName: 'Plano Worship Mensal',
               status: 'active',
-              provider: 'stripe',
+              provider: 'infinitepay',
               currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
               priceBrl: 49.90,
               billingCycle: 'monthly',
@@ -353,10 +347,16 @@ class AuthService {
     return record ? this.sanitizeUser(record) : null;
   }
 
-  deleteUser(userId: string): void {
-    this.users = this.users.filter((u) => u.id !== userId);
+  deleteUser(userId: string, email?: string): void {
+    const cleanEmail = email?.trim().toLowerCase();
+    this.users = this.users.filter(
+      (u) => u.id !== userId && (!cleanEmail || u.email.toLowerCase() !== cleanEmail)
+    );
     this.saveUsers();
-    if (this.currentSession?.user.id === userId) {
+    if (
+      this.currentSession?.user.id === userId ||
+      (cleanEmail && this.currentSession?.user.email.toLowerCase() === cleanEmail)
+    ) {
       this.logout();
     }
   }
@@ -484,7 +484,7 @@ class AuthService {
         cleanEmail === 'admin@playback.pro' ||
         cleanEmail === 'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com';
 
-      const role: UserRole = profile?.role || (isAdminEmail ? 'admin' : (authUser.user_metadata?.role as UserRole) || 'user');
+      const role: UserRole = isAdminEmail ? 'admin' : 'user';
       const status: UserApprovalStatus =
         role === 'admin'
           ? 'active'
@@ -556,7 +556,7 @@ class AuthService {
                 planId: 'monthly',
                 planName: 'Plano Worship Mensal',
                 status: 'active',
-                provider: 'stripe',
+                provider: 'infinitepay',
                 currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
                 priceBrl: 49.90,
                 billingCycle: 'monthly',
@@ -709,7 +709,7 @@ class AuthService {
       planId: 'monthly',
       planName: 'Plano Worship Mensal (Aguardando Aprovação)',
       status: 'unpaid',
-      provider: 'stripe',
+      provider: 'infinitepay',
       currentPeriodEnd: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
       priceBrl: 49.90,
       billingCycle: 'monthly',
@@ -745,25 +745,34 @@ class AuthService {
         .order('created_at', { ascending: false });
 
       if (!error && Array.isArray(data)) {
-        return data.map((p: any) => ({
-          id: p.id,
-          name: p.name || 'Sem nome',
-          email: p.email || 'sem-email',
-          role: (p.role || 'user') as UserRole,
-          status: (p.status || 'pending') as UserApprovalStatus,
-          churchName: p.church_name || '',
-          createdAt: p.created_at || new Date().toISOString(),
-          subscription: {
-            planId: 'monthly',
-            planName: 'Plano Worship Mensal',
-            status: p.status === 'active' ? 'active' : 'unpaid',
-            provider: 'manual',
-            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            priceBrl: 49.9,
-            billingCycle: 'monthly',
-            lastPaymentDate: new Date().toISOString(),
-          },
-        }));
+        return data.map((p: any) => {
+          const email = (p.email || '').toLowerCase().trim();
+          const isMaster =
+            email === 'admin@playback.pro' ||
+            email === 'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com';
+          const role: UserRole = isMaster ? 'admin' : 'user';
+          return {
+            id: p.id,
+            name: p.name || 'Sem nome',
+            email: p.email || 'sem-email',
+            role,
+            status: (p.status || 'pending') as UserApprovalStatus,
+            churchName: p.church_name || '',
+            createdAt: p.created_at || new Date().toISOString(),
+            subscription: {
+              planId: isMaster ? 'admin_vip' : 'monthly',
+              planName: isMaster ? 'Acesso Master Administradora' : 'Plano Worship Mensal',
+              status: isMaster ? 'active' : p.status === 'active' ? 'active' : 'unpaid',
+              provider: 'manual',
+              currentPeriodEnd: isMaster
+                ? '2099-12-31T23:59:59.000Z'
+                : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+              priceBrl: isMaster ? 0 : 49.9,
+              billingCycle: isMaster ? 'lifetime' : 'monthly',
+              lastPaymentDate: new Date().toISOString(),
+            },
+          };
+        });
       }
       if (error) {
         console.warn('Aviso Supabase list profiles:', error.message);

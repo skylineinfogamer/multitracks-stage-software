@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './Modal';
 import { authService } from '../saas/AuthService';
 import { masterCatalogService } from '../saas/MasterCatalogService';
@@ -44,9 +44,71 @@ export function AdminPanelDialog({ onClose, onCatalogUpdated }: Props) {
   const currentUser = authService.getCurrentUser();
   const isAdmin = currentUser?.role === 'admin';
 
+  /**
+   * Identifica as 2 contas mestres imutáveis protegidas contra exclusão:
+   * 1. Administradora (multitracks pro)
+   * 2. Administradora do Catálogo (admin@playback.pro)
+   */
+  const isMasterAdmin = (target: { id?: string; email?: string; name?: string }) => {
+    const email = (target.email || '').toLowerCase().trim();
+    const id = (target.id || '').toLowerCase().trim();
+    const name = (target.name || '').toLowerCase().trim();
+
+    // 1. Administradora (multitracks-pro)
+    if (
+      id === 'usr_admin' ||
+      email === 'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com' ||
+      name.includes('multitracks pro') ||
+      name.includes('multitracks-pro')
+    ) {
+      return true;
+    }
+
+    // 2. Administradora do Catálogo
+    if (
+      id === 'usr_admin_alias' ||
+      email === 'admin@playback.pro' ||
+      name.includes('administradora do catálogo') ||
+      name.includes('administradora do catalogo')
+    ) {
+      return true;
+    }
+
+    return false;
+  };
+
   const refreshUsers = () => {
     setUsers(authService.listUsers());
   };
+
+  /**
+   * Lista unificada e filtrada para a aba de assinaturas:
+   * Garante as 2 contas Masters no topo e trata todos os outros usuários como Músicos ('user').
+   */
+  const displayUsers = useMemo(() => {
+    // 1. Contas Master administradoras (sempre role 'admin')
+    const masters = authService.listUsers().filter((u) => isMasterAdmin(u));
+
+    // 2. Contas vindas da nuvem (Supabase) - não masters são estritamente 'user'
+    const cloudUsers = supabaseUsers
+      .filter((su) => !isMasterAdmin(su))
+      .map((su) => ({ ...su, role: 'user' as const }));
+
+    // 3. Contas locais que não sejam master e não estejam já na lista cloud
+    const localUsers = users
+      .filter(
+        (lu) =>
+          !isMasterAdmin(lu) &&
+          !cloudUsers.some(
+            (cu) =>
+              cu.id === lu.id ||
+              (cu.email && lu.email && cu.email.toLowerCase() === lu.email.toLowerCase()),
+          ),
+      )
+      .map((lu) => ({ ...lu, role: 'user' as const }));
+
+    return [...masters, ...cloudUsers, ...localUsers];
+  }, [users, supabaseUsers]);
 
   /**
    * Consulta a tabela `profiles` no Supabase filtrando exclusivamente por status = 'pending'
@@ -176,9 +238,14 @@ export function AdminPanelDialog({ onClose, onCatalogUpdated }: Props) {
   };
 
   /**
-   * Ação: Excluir permanentemente o cliente via RPC do Supabase
+   * Ação: Excluir permanentemente o cliente via Supabase e cache local
    */
-  const handleDeleteUser = async (idDoCliente: string, nomeDoCliente: string) => {
+  const handleDeleteUser = async (idDoCliente: string, nomeDoCliente: string, emailDoCliente?: string) => {
+    if (isMasterAdmin({ id: idDoCliente, name: nomeDoCliente, email: emailDoCliente })) {
+      alert('Ação Bloqueada: As contas Administradoras Master (Multitracks Pro e Catálogo) são essenciais para o sistema e não podem ser excluídas.');
+      return;
+    }
+
     const confirmed = window.confirm(
       `Tem certeza que deseja excluir permanentemente o cadastro de "${nomeDoCliente}"?\n\nEsta ação removerá o usuário na nuvem (Supabase) e não pode ser desfeita.`
     );
@@ -187,50 +254,55 @@ export function AdminPanelDialog({ onClose, onCatalogUpdated }: Props) {
     setUpdatingId(idDoCliente);
     setActionFeedback(`Excluindo cadastro de ${nomeDoCliente}...`);
 
-    // Atualização otimista imediata na interface
-    setPendingUsers((prev) => prev.filter((u) => u.id !== idDoCliente));
-    setSupabaseUsers((prev) => prev.filter((u) => u.id !== idDoCliente));
-    setUsers((prev) => prev.filter((u) => u.id !== idDoCliente));
+    const cleanEmail = emailDoCliente?.trim().toLowerCase();
 
-    try {
-      // 1. Executa a função RPC do Supabase
-      const { error: rpcError } = await supabase.rpc('admin_delete_user', {
-        target_user_id: idDoCliente,
-      });
+    // 1. Remove imediatamente do cache local e da interface para resposta instantânea
+    authService.deleteUser(idDoCliente, emailDoCliente);
+    setPendingUsers((prev) =>
+      prev.filter(
+        (u) => u.id !== idDoCliente && (!cleanEmail || u.email.toLowerCase() !== cleanEmail),
+      ),
+    );
+    setSupabaseUsers((prev) =>
+      prev.filter(
+        (u) => u.id !== idDoCliente && (!cleanEmail || u.email.toLowerCase() !== cleanEmail),
+      ),
+    );
+    setUsers((prev) =>
+      prev.filter(
+        (u) => u.id !== idDoCliente && (!cleanEmail || u.email.toLowerCase() !== cleanEmail),
+      ),
+    );
 
-      if (rpcError) {
-        console.warn('[AdminPanel] Aviso no RPC admin_delete_user, tentando delete direto em profiles:', rpcError.message);
-        // Fallback: exclusão direta na tabela profiles caso a RPC não esteja exposta
-        const { error: tableError } = await supabase
+    // 2. Se for UUID, exclui na nuvem (Supabase profiles e auth.users)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idDoCliente);
+    if (isUuid) {
+      try {
+        const { error: profileError } = await supabase
           .from('profiles')
           .delete()
           .eq('id', idDoCliente);
-        if (tableError) {
-          throw new Error(tableError.message || rpcError.message);
+
+        if (profileError) {
+          console.warn('[AdminPanel] Aviso ao excluir em profiles:', profileError.message);
         }
+
+        try {
+          await supabase.rpc('admin_delete_user', { target_user_id: idDoCliente });
+        } catch {
+          // RPC opcional caso não esteja configurada ainda no Supabase
+        }
+      } catch (cloudErr) {
+        console.warn('[AdminPanel] Falha na exclusão remota:', cloudErr);
       }
-
-      // 2. Remove do cache local do AuthService
-      authService.deleteUser(idDoCliente);
-
-      setActionFeedback(`🗑️ Cadastro de ${nomeDoCliente} excluído com sucesso!`);
-
-      // 3. Recarrega os dados atualizados da tabela sem reload de página
-      await loadPendingUsers();
-      await loadSupabaseUsers();
-      refreshUsers();
-    } catch (err: any) {
-      setActionFeedback(`❌ Falha ao excluir usuário: ${err.message || String(err)}`);
-      // Em caso de falha, recarrega para restaurar o estado correto
-      await loadPendingUsers();
-      await loadSupabaseUsers();
-    } finally {
-      setUpdatingId(null);
-      setTimeout(() => setActionFeedback(null), 4000);
     }
+
+    setActionFeedback(`🗑️ Cadastro de ${nomeDoCliente} excluído com sucesso!`);
+    setUpdatingId(null);
+    setTimeout(() => setActionFeedback(null), 3000);
   };
 
-  const RLS_FIX_SQL = `-- Copie e execute no SQL Editor do Supabase para corrigir e garantir permissões sem recursão infinita:
+  const RLS_FIX_SQL = `-- Copie e execute no SQL Editor do Supabase para corrigir e garantir exclusão e permissões:
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
@@ -238,6 +310,7 @@ DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
 DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;
 DROP POLICY IF EXISTS "Admins can update all profiles" ON profiles;
+DROP POLICY IF EXISTS "Admins can delete profiles" ON profiles;
 
 CREATE POLICY "Users can view own profile" ON profiles FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Users can insert own profile" ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
@@ -251,12 +324,37 @@ SET search_path = public
 STABLE
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    SELECT 1 FROM profiles 
+    WHERE id = auth.uid() 
+      AND (
+        role = 'admin' 
+        OR lower(email) IN (
+          'admin@playback.pro',
+          'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com'
+        )
+      )
   );
 $$;
 
 CREATE POLICY "Admins can view all profiles" ON profiles FOR SELECT USING (is_admin());
 CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_admin());
+CREATE POLICY "Admins can delete profiles" ON profiles FOR DELETE USING (is_admin());
+
+-- RPC para exclusão completa definitiva (auth.users + profiles)
+CREATE OR REPLACE FUNCTION public.admin_delete_user(target_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  DELETE FROM public.profiles WHERE id = target_user_id;
+  DELETE FROM auth.users WHERE id = target_user_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
 `;
 
   const handleSaveConfig = () => {
@@ -702,26 +800,28 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
                             {isProcessing ? '...' : '❌ Recusar'}
                           </button>
 
-                          <button
-                            className="btn small"
-                            disabled={isProcessing}
-                            onClick={() => handleDeleteUser(client.id, client.name)}
-                            style={{
-                              background: '#EF4444',
-                              color: '#fff',
-                              border: 'none',
-                              fontWeight: 700,
-                              fontSize: 11,
-                              padding: '6px 10px',
-                              cursor: isProcessing ? 'wait' : 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                            }}
-                            title="Excluir permanentemente este cadastro via RPC do Supabase"
-                          >
-                            {isProcessing ? '...' : '🗑️ Excluir'}
-                          </button>
+                          {!isMasterAdmin(client) && (
+                            <button
+                              className="btn small"
+                              disabled={isProcessing}
+                              onClick={() => handleDeleteUser(client.id, client.name, client.email)}
+                              style={{
+                                background: '#EF4444',
+                                color: '#fff',
+                                border: 'none',
+                                fontWeight: 700,
+                                fontSize: 11,
+                                padding: '6px 10px',
+                                cursor: isProcessing ? 'wait' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                              title="Excluir permanentemente este cadastro via RPC do Supabase"
+                            >
+                              {isProcessing ? '...' : '🗑️ Excluir'}
+                            </button>
+                          )}
 
                           <button
                             className="btn small"
@@ -789,25 +889,25 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
               <div style={{ background: '#16181e', border: '1px solid #2e323b', borderRadius: 8, padding: 12 }}>
                 <span className="muted" style={{ fontSize: 11 }}>Total Usuários:</span>
                 <div style={{ fontSize: 20, fontWeight: 800, color: '#f8fafc', marginTop: 2 }}>
-                  {users.length}
+                  {displayUsers.length}
                 </div>
               </div>
               <div style={{ background: '#16181e', border: '1px solid #10b981', borderRadius: 8, padding: 12 }}>
                 <span className="muted" style={{ fontSize: 11 }}>Assinaturas Ativas:</span>
                 <div style={{ fontSize: 20, fontWeight: 800, color: '#34d399', marginTop: 2 }}>
-                  {users.filter(u => u.subscription?.status === 'active').length}
+                  {displayUsers.filter(u => u.subscription?.status === 'active').length}
                 </div>
               </div>
               <div style={{ background: '#16181e', border: '1px solid #ef4444', borderRadius: 8, padding: 12 }}>
                 <span className="muted" style={{ fontSize: 11 }}>Inadimplentes / Bloqueados:</span>
                 <div style={{ fontSize: 20, fontWeight: 800, color: '#f87171', marginTop: 2 }}>
-                  {users.filter(u => u.subscription?.status === 'past_due' || u.subscription?.status === 'canceled').length}
+                  {displayUsers.filter(u => u.subscription?.status === 'past_due' || u.subscription?.status === 'canceled' || u.status === 'rejected').length}
                 </div>
               </div>
               <div style={{ background: '#16181e', border: '1px solid #f59e0b', borderRadius: 8, padding: 12 }}>
-                <span className="muted" style={{ fontSize: 11 }}>Contas VIP / Master:</span>
+                <span className="muted" style={{ fontSize: 11 }}>Admins Master:</span>
                 <div style={{ fontSize: 20, fontWeight: 800, color: '#fbbf24', marginTop: 2 }}>
-                  {users.filter(u => u.role === 'admin' || u.subscription?.planId === 'church_vip').length}
+                  {displayUsers.filter(u => isMasterAdmin(u)).length}
                 </div>
               </div>
             </div>
@@ -829,11 +929,12 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
-                {users.map((u) => {
+                {displayUsers.map((u) => {
                   const sub = u.subscription;
                   const status = sub?.status || 'active';
                   const isBlocked = status === 'past_due' || status === 'canceled';
-                  const isVip = u.role === 'admin' || sub?.planId === 'admin_vip' || sub?.planId === 'church_vip';
+                  const isMaster = isMasterAdmin(u);
+                  const isVip = isMaster || sub?.planId === 'admin_vip' || sub?.planId === 'church_vip';
 
                   return (
                     <div
@@ -851,7 +952,7 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <span style={{ fontSize: 18 }}>
-                            {u.role === 'admin' ? '👑' : isBlocked ? '⚠️' : '🎸'}
+                            {isMaster ? '👑' : isBlocked ? '⚠️' : '🎸'}
                           </span>
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -862,11 +963,11 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
                                   padding: '1px 6px',
                                   borderRadius: 8,
                                   fontWeight: 700,
-                                  background: u.role === 'admin' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(0, 153, 255, 0.2)',
-                                  color: u.role === 'admin' ? '#f59e0b' : '#38bdf8',
+                                  background: isMaster ? 'rgba(245, 158, 11, 0.2)' : 'rgba(0, 153, 255, 0.2)',
+                                  color: isMaster ? '#f59e0b' : '#38bdf8',
                                 }}
                               >
-                                {u.role === 'admin' ? 'Admin' : 'Músico'}
+                                {isMaster ? 'Admin Master' : 'Músico'}
                               </span>
                             </div>
                             <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -939,56 +1040,62 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
                           Plano: <span style={{ color: '#f1f5f9', fontWeight: 600 }}>{sub?.planName || 'Mensal'}</span> · Gateway: <span style={{ color: '#f1f5f9', textTransform: 'uppercase' }}>{sub?.provider || 'Stripe'}</span> · Vence: <span style={{ color: '#38bdf8' }}>{sub?.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString('pt-BR') : 'Vitalício'}</span>
                         </div>
 
-                        {/* Admin Action Buttons */}
-                        {u.role !== 'admin' && (
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            <button
-                              className="btn small"
-                              style={{ fontSize: 11, background: '#059669', borderColor: '#059669', color: '#fff' }}
-                              onClick={() => {
-                                subscriptionService.renewUserDays(u.id, 30);
-                                refreshUsers();
-                              }}
-                              title="Renova assinatura por mais 30 dias"
-                            >
-                              ➕ Renovar +30d
-                            </button>
-                            <button
-                              className="btn small"
-                              style={{ fontSize: 11, background: '#d97706', borderColor: '#d97706', color: '#fff' }}
-                              onClick={() => {
-                                subscriptionService.grantVip(u.id);
-                                refreshUsers();
-                              }}
-                              title="Concede isenção VIP vitalícia"
-                            >
-                              👑 Conceder VIP
-                            </button>
-                            {status === 'active' ? (
-                              <button
-                                className="btn small danger"
-                                style={{ fontSize: 11 }}
-                                onClick={() => {
-                                  subscriptionService.setUserStatus(u.id, 'past_due');
-                                  refreshUsers();
-                                }}
-                                title="Bloqueia imediatamente por inadimplência"
-                              >
-                                ⚠️ Bloquear (Inadimplente)
-                              </button>
-                            ) : (
+                        {/* Action Buttons */}
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {!isMaster && (
+                            <>
                               <button
                                 className="btn small"
-                                style={{ fontSize: 11, borderColor: '#10b981', color: '#34d399' }}
+                                style={{ fontSize: 11, background: '#059669', borderColor: '#059669', color: '#fff' }}
                                 onClick={() => {
-                                  subscriptionService.setUserStatus(u.id, 'active');
+                                  subscriptionService.renewUserDays(u.id, 30);
                                   refreshUsers();
                                 }}
-                                title="Desbloqueia o usuário"
+                                title="Renova assinatura por mais 30 dias"
                               >
-                                🟢 Desbloquear
+                                ➕ Renovar +30d
                               </button>
-                            )}
+                              <button
+                                className="btn small"
+                                style={{ fontSize: 11, background: '#d97706', borderColor: '#d97706', color: '#fff' }}
+                                onClick={() => {
+                                  subscriptionService.grantVip(u.id);
+                                  refreshUsers();
+                                }}
+                                title="Concede isenção VIP vitalícia"
+                              >
+                                👑 Conceder VIP
+                              </button>
+                              {status === 'active' ? (
+                                <button
+                                  className="btn small danger"
+                                  style={{ fontSize: 11 }}
+                                  onClick={() => {
+                                    subscriptionService.setUserStatus(u.id, 'past_due');
+                                    refreshUsers();
+                                  }}
+                                  title="Bloqueia imediatamente por inadimplência"
+                                >
+                                  ⚠️ Bloquear (Inadimplente)
+                                </button>
+                              ) : (
+                                <button
+                                  className="btn small"
+                                  style={{ fontSize: 11, borderColor: '#10b981', color: '#34d399' }}
+                                  onClick={() => {
+                                    subscriptionService.setUserStatus(u.id, 'active');
+                                    refreshUsers();
+                                  }}
+                                  title="Desbloqueia o usuário"
+                                >
+                                  🟢 Desbloquear
+                                </button>
+                              )}
+                            </>
+                          )}
+
+                          {/* Delete button: available for all users, EXCEPT the 2 Master accounts */}
+                          {!isMaster ? (
                             <button
                               className="btn small"
                               style={{
@@ -1000,15 +1107,34 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 4,
+                                padding: '5px 9px',
                                 boxShadow: '0 2px 8px rgba(239, 68, 68, 0.25)',
                               }}
-                              onClick={() => handleDeleteUser(u.id, u.name)}
-                              title="Excluir permanentemente este usuário do Supabase"
+                              onClick={() => handleDeleteUser(u.id, u.name, u.email)}
+                              title="Excluir permanentemente este usuário do Supabase e do sistema"
                             >
                               🗑️ Excluir
                             </button>
-                          </div>
-                        )}
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 800,
+                                color: '#f59e0b',
+                                background: 'rgba(245, 158, 11, 0.15)',
+                                border: '1px solid rgba(245, 158, 11, 0.35)',
+                                padding: '3px 8px',
+                                borderRadius: 4,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                              title="Conta Administradora Master imutável e protegida contra exclusão acidental"
+                            >
+                              🛡️ Master Protegido
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -1036,7 +1162,17 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
                     Selecione qual provedor de pagamento será sugerido primariamente aos usuários (Excluído Mercado Pago).
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: gatewayConfig.activeProvider === 'infinitepay' ? '#10b981' : '#94a3b8' }}>
+                    <input
+                      type="radio"
+                      name="activeProvider"
+                      checked={gatewayConfig.activeProvider === 'infinitepay'}
+                      onChange={() => setGatewayConfig(p => ({ ...p, activeProvider: 'infinitepay' }))}
+                      style={{ accentColor: '#10b981' }}
+                    />
+                    ⚡ InfinitePay (PIX & Cartão - Oficial)
+                  </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: gatewayConfig.activeProvider === 'stripe' ? '#38bdf8' : '#94a3b8' }}>
                     <input
                       type="radio"
@@ -1063,6 +1199,62 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
 
             {/* Form for URLs and API Keys */}
             <form onSubmit={handleSaveGatewayConfig} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* InfinitePay Card */}
+              <div style={{ background: '#111317', border: '1px solid #10b981', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>⚡</span>
+                  <strong style={{ fontSize: 13, color: '#34d399' }}>Configurações do InfinitePay (Gateway Principal):</strong>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Merchant Tag/Handle (ex: multitracks_pro):</label>
+                    <input
+                      type="text"
+                      value={gatewayConfig.infinitepayHandle || ''}
+                      onChange={(e) => setGatewayConfig(p => ({ ...p, infinitepayHandle: e.target.value }))}
+                      placeholder="multitracks_pro"
+                      style={{ width: '100%', fontSize: 12 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>InfinitePay API Key / Token (Opcional se usar Edge):</label>
+                    <input
+                      type="password"
+                      value={gatewayConfig.infinitepayApiKey || ''}
+                      onChange={(e) => setGatewayConfig(p => ({ ...p, infinitepayApiKey: e.target.value }))}
+                      placeholder="inf_live_..."
+                      style={{ width: '100%', fontSize: 12 }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Link Checkout Mensal InfinitePay (R$ 49,90):</label>
+                    <input
+                      type="text"
+                      value={gatewayConfig.infinitepayMonthlyCheckoutUrl || ''}
+                      onChange={(e) => setGatewayConfig(p => ({ ...p, infinitepayMonthlyCheckoutUrl: e.target.value }))}
+                      placeholder="https://infinitepay.io/pay/multitracks_pro/49.90"
+                      style={{ width: '100%', fontSize: 12 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Link Checkout Anual InfinitePay (R$ 479,00):</label>
+                    <input
+                      type="text"
+                      value={gatewayConfig.infinitepayAnnualCheckoutUrl || ''}
+                      onChange={(e) => setGatewayConfig(p => ({ ...p, infinitepayAnnualCheckoutUrl: e.target.value }))}
+                      placeholder="https://infinitepay.io/pay/multitracks_pro/479.00"
+                      style={{ width: '100%', fontSize: 12 }}
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 {/* Stripe Card */}
                 <div style={{ background: '#111317', border: '1px solid #2e323b', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1343,13 +1535,32 @@ CREATE POLICY "Admins can update all profiles" ON profiles FOR UPDATE USING (is_
 
             {/* Current Shared Catalog Items */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                 <strong style={{ fontSize: 13, color: '#f8fafc' }}>
                   Músicas Ativas no Catálogo dos Músicos ({catalogSongs.length}):
                 </strong>
-                <span className="muted" style={{ fontSize: 11 }}>
-                  {config.lastSyncTime ? `Último sync: ${new Date(config.lastSyncTime).toLocaleString('pt-BR')}` : 'Pronto para sincronizar'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {catalogSongs.length > 0 && (
+                    <button
+                      className="btn small danger"
+                      style={{ fontSize: 11, padding: '3px 8px' }}
+                      onClick={() => {
+                        if (confirm('Tem certeza que deseja limpar todo o catálogo? Todas as músicas serão removidas da lista pública para que você possa ressincronizar do zero.')) {
+                          masterCatalogService.clearCatalog();
+                          setCatalogSongs([]);
+                          onCatalogUpdated?.();
+                          setStatusMsg('🗑️ Todo o catálogo foi limpo! Você pode sincronizar agora com os novos arquivos.');
+                        }
+                      }}
+                      title="Limpar todas as músicas do catálogo público"
+                    >
+                      🗑️ Limpar Todo o Catálogo
+                    </button>
+                  )}
+                  <span className="muted" style={{ fontSize: 11 }}>
+                    {config.lastSyncTime ? `Último sync: ${new Date(config.lastSyncTime).toLocaleString('pt-BR')}` : 'Pronto para sincronizar'}
+                  </span>
+                </div>
               </div>
 
               <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>

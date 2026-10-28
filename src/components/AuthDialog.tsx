@@ -4,7 +4,7 @@ import { authService } from '../saas/AuthService';
 import { masterCatalogService } from '../saas/MasterCatalogService';
 import { subscriptionService } from '../saas/SubscriptionService';
 import { openExternalUrl } from '../utils/openUrl';
-import type { User, UserRole } from '../saas/types';
+import type { User } from '../saas/types';
 
 interface Props {
   currentUser?: User | null;
@@ -21,7 +21,6 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [churchName, setChurchName] = useState('');
-  const [role, setRole] = useState<UserRole>('user');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [registeredPendingUser, setRegisteredPendingUser] = useState<User | null>(null);
@@ -42,19 +41,19 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
   const [renewFeedback, setRenewFeedback] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  const handleLaunchCheckout = async (provider: 'stripe' | 'asaas') => {
-    const url = subscriptionService.getCheckoutUrl(renewPlan, provider);
-    setRenewFeedback(`Abrindo checkout seguro do ${provider === 'stripe' ? 'Stripe (Cartão)' : 'Asaas (Pix)'} no navegador...`);
+  const handleLaunchCheckout = async () => {
+    const url = subscriptionService.getCheckoutUrl(renewPlan);
+    setRenewFeedback(`Abrindo checkout seguro InfinitePay no navegador...`);
     const ok = await openExternalUrl(url);
     if (ok) {
-      setRenewFeedback(`✅ Checkout aberto com sucesso no seu navegador padrão!`);
+      setRenewFeedback(`✅ Checkout InfinitePay aberto com sucesso no seu navegador padrão!`);
     } else {
       setRenewFeedback(`⚠️ Acesse o checkout diretamente pelo link: ${url}`);
     }
   };
 
-  const handleCopyCheckoutUrl = (provider: 'stripe' | 'asaas') => {
-    const url = subscriptionService.getCheckoutUrl(renewPlan, provider);
+  const handleCopyCheckoutUrl = () => {
+    const url = subscriptionService.getCheckoutUrl(renewPlan);
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
@@ -106,7 +105,7 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
     setErrorMsg(null);
     setLoading(true);
     try {
-      const user = await authService.register(name, email, password, churchName, role);
+      const user = await authService.register(name, email, password, churchName, 'user');
       if (user.status === 'pending') {
         setRegisteredPendingUser(user);
       } else {
@@ -435,7 +434,7 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
               <div>
                 <span className="muted">Gateway de Cobrança:</span>
                 <div style={{ fontWeight: 600, color: '#f1f5f9', marginTop: 2, textTransform: 'uppercase' }}>
-                  {currentUser.subscription?.provider === 'asaas' ? '⚡ Asaas (Pix / Boleto)' : currentUser.subscription?.provider === 'stripe' ? '💳 Stripe (Cartão)' : '🏛️ Manual'}
+                  {currentUser.subscription?.provider === 'infinitepay' ? '⚡ InfinitePay (Pix / Cartão)' : '🏛️ Manual'}
                 </div>
               </div>
               <div>
@@ -483,7 +482,7 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
                     Selecione o Plano Desejado:
                   </strong>
                   <span className="muted" style={{ fontSize: 11 }}>
-                    Ambiente Seguro Stripe / Asaas
+                    Ambiente Seguro InfinitePay
                   </span>
                 </div>
 
@@ -542,48 +541,29 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
                   </div>
                 </div>
 
-                {/* Direct Action Buttons for Stripe & Asaas */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
+                {/* Direct Action Button for InfinitePay */}
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <button
                     type="button"
-                    onClick={() => void handleLaunchCheckout('stripe')}
+                    onClick={() => void handleLaunchCheckout()}
                     style={{
-                      background: '#635BFF',
+                      flex: 1,
+                      background: '#10b981',
                       color: '#fff',
                       border: 'none',
                       borderRadius: 6,
-                      padding: '10px 12px',
-                      fontSize: 12,
+                      padding: '10px 14px',
+                      fontSize: 12.5,
                       fontWeight: 700,
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: 6,
+                      boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
                     }}
                   >
-                    💳 Pagar via Stripe (Cartão)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => void handleLaunchCheckout('asaas')}
-                    style={{
-                      background: '#0030B8',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 6,
-                      padding: '10px 12px',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    ⚡ Pagar via Asaas (Pix)
+                    ⚡ Pagar com InfinitePay (PIX & Cartão)
                   </button>
                 </div>
 
@@ -596,7 +576,7 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
                     type="button"
                     className="btn small"
                     style={{ fontSize: 10, padding: '2px 8px' }}
-                    onClick={() => handleCopyCheckoutUrl('stripe')}
+                    onClick={handleCopyCheckoutUrl}
                   >
                     {copiedLink ? '✅ Copiado!' : '📋 Copiar Link'}
                   </button>
@@ -859,24 +839,15 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
               </label>
             </div>
 
-            <div className="form-grid" style={{ gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--muted)' }}>
-                Igreja / Ministério:
-                <input
-                  type="text"
-                  value={churchName}
-                  onChange={(e) => setChurchName(e.target.value)}
-                  placeholder="Ex: Igreja Batista Central"
-                />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--muted)' }}>
-                Tipo de Perfil:
-                <select value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
-                  <option value="user">Músico (Acessa e Baixa)</option>
-                  <option value="admin">Administradora (Gerencia Drive)</option>
-                </select>
-              </label>
-            </div>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--muted)' }}>
+              Igreja / Ministério:
+              <input
+                type="text"
+                value={churchName}
+                onChange={(e) => setChurchName(e.target.value)}
+                placeholder="Ex: Igreja Batista Central"
+              />
+            </label>
 
             <button
               type="submit"

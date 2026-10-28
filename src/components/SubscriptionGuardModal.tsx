@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { subscriptionService } from '../saas/SubscriptionService';
 import { authService } from '../saas/AuthService';
 import { masterCatalogService } from '../saas/MasterCatalogService';
+import { supabase } from '../saas/supabaseClient';
 import { openExternalUrl } from '../utils/openUrl';
 import type { SubscriptionPlanId, User } from '../saas/types';
 
@@ -16,6 +17,103 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanId>('monthly');
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  const [pixData, setPixData] = useState<{
+    pixCode: string;
+    qrcodeUrl: string;
+    checkoutUrl: string;
+    amountFormatted: string;
+  } | null>(null);
+  const [copiedPix, setCopiedPix] = useState(false);
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
+
+  // Supabase Realtime Listener na tabela public.profiles:
+  // Assim que a Edge Function do Webhook atualizar o status para 'active', desbloqueia automaticamente!
+  useEffect(() => {
+    if (!user.id) return;
+
+    const channel = supabase
+      .channel(`profile-subscription-realtime-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`,
+        },
+        async (payload: any) => {
+          console.log('[Supabase Realtime] Perfil atualizado:', payload);
+          if (payload.new && payload.new.status === 'active') {
+            setPaymentConfirmed(true);
+            setFeedback('🎉 Pagamento Confirmado via InfinitePay! Seu acesso foi liberado com sucesso.');
+            await authService.refreshCurrentUser();
+            setTimeout(() => {
+              onUnlocked?.();
+            }, 1800);
+          }
+        },
+      )
+      .subscribe();
+
+    // Polling de redundância a cada 4 segundos caso o WebSocket Realtime sofra restrição de rede
+    const interval = setInterval(async () => {
+      try {
+        const refreshed = await authService.refreshCurrentUser();
+        if (refreshed && refreshed.status === 'active') {
+          setPaymentConfirmed(true);
+          setFeedback('🎉 Pagamento Confirmado via InfinitePay! Seu acesso foi liberado.');
+          clearInterval(interval);
+          setTimeout(() => {
+            onUnlocked?.();
+          }, 1500);
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 4000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [user.id, onUnlocked]);
+
+  const handleCreatePixInfinitePay = async () => {
+    setLoading(true);
+    setFeedback('⚡ Gerando cobrança PIX via InfinitePay Edge Function...');
+    try {
+      const res = await subscriptionService.createInfinitePayCharge(
+        user.id,
+        selectedPlan,
+        'pix',
+        { name: user.name, email: user.email },
+      );
+      if (res && res.pixCode) {
+        setPixData({
+          pixCode: res.pixCode,
+          qrcodeUrl: res.qrcodeUrl,
+          checkoutUrl: res.checkoutUrl,
+          amountFormatted: res.amountFormatted,
+        });
+        setFeedback('⚡ QR Code PIX gerado! Pague com seu banco para liberação automática via Realtime.');
+      }
+    } catch (e: any) {
+      setFeedback(`❌ Falha ao gerar PIX: ${e.message || String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenInfinitePayCard = async () => {
+    const url = pixData?.checkoutUrl || subscriptionService.getCheckoutUrl(selectedPlan, 'infinitepay');
+    const opened = await openExternalUrl(url);
+    if (opened) {
+      setFeedback('✅ Abrindo checkout com cartão InfinitePay no seu navegador...');
+    } else {
+      setFeedback(`⚠️ Acesse o checkout diretamente pelo link: ${url}`);
+    }
+  };
 
   const isPending = user.status === 'pending';
   const isRejected = user.status === 'rejected';
@@ -55,19 +153,9 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
     }
   };
 
-  const handleOpenCheckout = async (provider: 'stripe' | 'asaas') => {
-    const url = subscriptionService.getCheckoutUrl(selectedPlan, provider);
-    const opened = await openExternalUrl(url);
-    if (opened) {
-      setFeedback(`✅ Abrindo checkout seguro do ${provider === 'stripe' ? 'Stripe (Cartão)' : 'Asaas (Pix)'} no seu navegador...`);
-    } else {
-      setFeedback(`⚠️ Acesse o checkout diretamente pelo link: ${url}`);
-    }
-  };
-
   const handleCheckStatus = () => {
     setLoading(true);
-    setFeedback('Consultando gateway de pagamento (Stripe / Asaas)...');
+    setFeedback('Consultando gateway de pagamento InfinitePay...');
     setTimeout(() => {
       setLoading(false);
       const res = subscriptionService.checkUserAccess(user);
@@ -407,34 +495,130 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
                 </div>
               </div>
 
-              {/* Action Buttons: Stripe & Asaas */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <button
-                    onClick={() => handleOpenCheckout('stripe')}
+              {/* PIX QR Code Display Box (InfinitePay) */}
+              {pixData && (
+                <div
+                  style={{
+                    background: '#161922',
+                    border: '1px solid #10b981',
+                    borderRadius: 10,
+                    padding: 16,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 12,
+                    boxShadow: '0 8px 24px rgba(16, 185, 129, 0.15)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#34d399', fontWeight: 700, fontSize: 14 }}>
+                    <span>⚡</span> QR Code PIX (InfinitePay) — {pixData.amountFormatted}
+                  </div>
+
+                  {/* QR Code Image */}
+                  <div
                     style={{
-                      background: '#635BFF',
+                      background: '#fff',
+                      padding: 10,
+                      borderRadius: 8,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                    }}
+                  >
+                    <img
+                      src={pixData.qrcodeUrl}
+                      alt="PIX QR Code InfinitePay"
+                      style={{ width: 180, height: 180, display: 'block' }}
+                    />
+                  </div>
+
+                  <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
+                    Abra o app do seu banco, escolha <b>PIX &gt; Pagar com QR Code</b> ou copie o código abaixo:
+                  </div>
+
+                  {/* Copia e Cola Box */}
+                  <div style={{ width: '100%', display: 'flex', gap: 6 }}>
+                    <input
+                      type="text"
+                      readOnly
+                      value={pixData.pixCode}
+                      style={{
+                        flex: 1,
+                        background: '#0d0e12',
+                        border: '1px solid #2e323b',
+                        color: '#94a3b8',
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                      }}
+                    />
+                    <button
+                      className="btn primary"
+                      style={{ background: '#10b981', borderColor: '#10b981', color: '#fff', fontSize: 12, fontWeight: 700 }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(pixData.pixCode);
+                        setCopiedPix(true);
+                        setTimeout(() => setCopiedPix(false), 3000);
+                      }}
+                    >
+                      {copiedPix ? '✅ Copiado!' : '📋 Copiar'}
+                    </button>
+                  </div>
+
+                  {/* Live Supabase Realtime indicator */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 11.5,
+                      color: paymentConfirmed ? '#34d399' : '#38bdf8',
+                      background: paymentConfirmed ? 'rgba(16, 185, 129, 0.15)' : 'rgba(0, 153, 255, 0.1)',
+                      padding: '6px 12px',
+                      borderRadius: 20,
+                      border: `1px solid ${paymentConfirmed ? '#10b981' : 'rgba(0, 153, 255, 0.3)'}`,
+                    }}
+                  >
+                    <span style={{ display: 'inline-block', animation: paymentConfirmed ? 'none' : 'spin 1.5s linear infinite' }}>
+                      {paymentConfirmed ? '🎉' : '🔄'}
+                    </span>
+                    <span>
+                      {paymentConfirmed
+                        ? 'Pagamento Confirmado! Desbloqueando software…'
+                        : 'Aguardando pagamento via Supabase Realtime (liberação automática)…'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons: InfinitePay & Stripe */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
+                  <button
+                    onClick={handleCreatePixInfinitePay}
+                    disabled={loading}
+                    style={{
+                      background: '#10b981',
                       color: '#fff',
                       border: 'none',
                       borderRadius: 8,
                       padding: '12px 16px',
-                      fontWeight: 700,
-                      fontSize: 13,
-                      cursor: 'pointer',
+                      fontWeight: 800,
+                      fontSize: 13.5,
+                      cursor: loading ? 'wait' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: 8,
-                      boxShadow: '0 4px 12px rgba(99, 91, 255, 0.3)',
+                      boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
                     }}
                   >
-                    💳 Renovar via Stripe (Cartão)
+                    ⚡ {loading ? 'Gerando PIX…' : 'Pagar via PIX (InfinitePay)'}
                   </button>
 
                   <button
-                    onClick={() => handleOpenCheckout('asaas')}
+                    onClick={handleOpenInfinitePayCard}
                     style={{
-                      background: '#0030B8',
+                      background: '#0ea5e9',
                       color: '#fff',
                       border: 'none',
                       borderRadius: 8,
@@ -446,10 +630,10 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: 8,
-                      boxShadow: '0 4px 12px rgba(0, 48, 184, 0.3)',
+                      boxShadow: '0 4px 12px rgba(14, 165, 233, 0.3)',
                     }}
                   >
-                    ⚡ Renovar via Asaas (Pix Instantâneo)
+                    💳 Cartão (InfinitePay)
                   </button>
                 </div>
 
@@ -463,13 +647,13 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
                       border: '1px solid #3b4252',
                       color: '#e2e8f0',
                       borderRadius: 8,
-                      padding: '12px 14px',
-                      fontSize: 13,
+                      padding: '10px 14px',
+                      fontSize: 12.5,
                       fontWeight: 600,
                       cursor: loading ? 'wait' : 'pointer',
                     }}
                   >
-                    {loading ? 'Verificando Pagamento…' : '🔄 Já Paguei? Verificar Status Agora'}
+                    {loading ? 'Consultando InfinitePay…' : '🔄 Já Paguei? Verificar Status Agora'}
                   </button>
                 </div>
               </div>

@@ -236,7 +236,7 @@ export function guessTrack(
     return {
       name: 'CLICK & GUIA (COMBINADO)',
       color: '#F39C12',
-      kind: 'click',
+      kind: 'audio',
       bus: 'UTILITY',
       output: 'OUT_6',
       pitchShift: false,
@@ -244,17 +244,17 @@ export function guessTrack(
     };
   }
 
-  // CLICK
+  // CLICK (Áudio Original)
   if (
     /\b(click|metr[oô]nomo|clique|bpm|tempo)\b/i.test(norm) ||
     norm.includes('click') ||
     norm.includes('clique') ||
     norm.includes('metronomo')
   ) {
-    return { name: 'CLICK', color: '#F39C12', kind: 'click', bus: 'UTILITY', output: 'OUT_6', pitchShift: false };
+    return { name: 'CLICK (Áudio Original)', color: '#F39C12', kind: 'audio', bus: 'UTILITY', output: 'OUT_6', pitchShift: false };
   }
 
-  // GUIDE / CUING
+  // GUIDE / CUING (Áudio Original)
   if (
     /\b(guide|guia|cues?|count|contagem|voz\s*guia|slate)\b/i.test(norm) ||
     norm.includes('guide') ||
@@ -262,7 +262,7 @@ export function guessTrack(
     norm.includes('cue') ||
     norm.includes('contagem')
   ) {
-    return { name: 'GUIA', color: '#0099FF', kind: 'guide', bus: 'UTILITY', output: 'OUT_5', pitchShift: false };
+    return { name: 'GUIDE (Áudio Original)', color: '#0099FF', kind: 'audio', bus: 'UTILITY', output: 'OUT_5', pitchShift: false };
   }
 
   // DRUMS & PERCUSSION
@@ -427,11 +427,15 @@ const INSTRUMENT_SUB_ORDER: Record<string, number> = {
 export function orderTracksForStage(tracks: Track[]): Track[] {
   return [...tracks].sort((a, b) => {
     // 1. Click first
-    if (a.kind === 'click' && b.kind !== 'click') return -1;
-    if (b.kind === 'click' && a.kind !== 'click') return 1;
+    const isClickA = a.kind === 'click' || a.name.includes('CLICK');
+    const isClickB = b.kind === 'click' || b.name.includes('CLICK');
+    if (isClickA && !isClickB) return -1;
+    if (isClickB && !isClickA) return 1;
     // 2. Guide second
-    if (a.kind === 'guide' && b.kind !== 'guide') return -1;
-    if (b.kind === 'guide' && a.kind !== 'guide') return 1;
+    const isGuideA = a.kind === 'guide' || a.name.includes('GUIDE') || a.name.includes('GUIA');
+    const isGuideB = b.kind === 'guide' || b.name.includes('GUIDE') || b.name.includes('GUIA');
+    if (isGuideA && !isGuideB) return -1;
+    if (isGuideB && !isGuideA) return 1;
     // 3. Musical bus group order
     const oA = a.bus ? BUS_STAGE_ORDER[a.bus] ?? 99 : 99;
     const oB = b.bus ? BUS_STAGE_ORDER[b.bus] ?? 99 : 99;
@@ -447,8 +451,8 @@ export function orderTracksForStage(tracks: Track[]): Track[] {
 
 /** Minimalist stage icon for a mixer channel strip header. */
 export function trackIcon(t: Pick<Track, 'name' | 'kind' | 'bus'>): string {
-  if (t.kind === 'click') return '⏱';
-  if (t.kind === 'guide') return '🎙';
+  if (t.kind === 'click' || t.name.includes('CLICK')) return '⏱';
+  if (t.kind === 'guide' || t.name.includes('GUIDE') || t.name.includes('GUIA')) return '🎙';
   const low = t.name.toLowerCase();
   if (/\b(perc|shaker|tamb|conga|loop|beat)\b/.test(low)) return '🪘';
   if (t.bus === 'DRUMS' || /\b(drum|bateria|kick|snare|hat|tom|oh|room)\b/.test(low)) return '🥁';
@@ -463,58 +467,44 @@ export function trackIcon(t: Pick<Track, 'name' | 'kind' | 'bus'>): string {
 
 
 /**
- * Guarantees that every song always has dedicated CLICK and GUIA tracks ready in the mixer,
- * recognizing them as headphone outputs (OUT_6 for Click, OUT_5 for Guide) so they can be
- * adjusted separately (just like the Pads) even when the project tracks don't contain recorded stems.
+ * Normalizes user stems (naming user-uploaded stems CLICK (Áudio Original) / GUIDE (Áudio Original))
+ * and cleans up legacy phantom/dummy tracks without audio files so only real audio stems appear in the mixer.
  */
 export function ensureUtilityTracks(song: Song): Song {
-  let tracks = [...song.tracks];
-  let changed = false;
+  const tracks = song.tracks
+    .filter((t) => {
+      // Remove legacy dummy tracks that have no audio file attached
+      if (!t.fileName && (t.id === 'click' || t.id === 'guide' || t.name === 'CLICK' || t.name === 'GUIA')) {
+        return false;
+      }
+      return true;
+    })
+    .map((t) => {
+      const low = t.name.toLowerCase();
+      if ((t.kind === 'click' || low === 'click' || low === 'clique' || low === 'metronomo') && !t.name.includes('(Áudio Original)')) {
+        return {
+          ...t,
+          name: 'CLICK (Áudio Original)',
+          color: '#F39C12',
+          kind: 'audio' as const,
+          bus: 'UTILITY' as const,
+          output: t.output || 'OUT_6',
+          pitchShift: false,
+        };
+      }
+      if ((t.kind === 'guide' || low === 'guide' || low === 'guia' || low === 'cue') && !t.name.includes('(Áudio Original)')) {
+        return {
+          ...t,
+          name: 'GUIDE (Áudio Original)',
+          color: '#0099FF',
+          kind: 'audio' as const,
+          bus: 'UTILITY' as const,
+          output: t.output || 'OUT_5',
+          pitchShift: false,
+        };
+      }
+      return t;
+    });
 
-  let click = tracks.find((t) => t.kind === 'click');
-  if (!click) {
-    click = {
-      id: uid('click'),
-      name: 'CLICK',
-      color: '#F39C12',
-      kind: 'click',
-      bus: 'UTILITY',
-      output: 'OUT_6', // Reconhecida como saída de fones (In-Ear Click)
-      volume: 0.75,
-      pan: 0,
-      mute: false,
-      solo: false,
-      pitchShift: false,
-    };
-    tracks = [click, ...tracks];
-    changed = true;
-  } else if (!click.output) {
-    click.output = 'OUT_6';
-    changed = true;
-  }
-
-  let guide = tracks.find((t) => t.kind === 'guide');
-  if (!guide) {
-    guide = {
-      id: uid('guide'),
-      name: 'GUIA',
-      color: '#0099FF',
-      kind: 'guide',
-      bus: 'UTILITY',
-      output: 'OUT_5', // Reconhecida como saída de fones (In-Ear Guia)
-      volume: 0.9,
-      pan: 0,
-      mute: false,
-      solo: false,
-      pitchShift: false,
-    };
-    const clickIdx = tracks.indexOf(click);
-    tracks.splice(clickIdx + 1, 0, guide);
-    changed = true;
-  } else if (!guide.output) {
-    guide.output = 'OUT_5';
-    changed = true;
-  }
-
-  return changed ? { ...song, tracks } : song;
+  return { ...song, tracks };
 }

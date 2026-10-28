@@ -58,7 +58,7 @@ export class AudioEngine {
   private secondaryDeviceId = '';
   private useDualDevices = false;
   private secondaryGuideGain: GainNode | null = null;
-  private internalGuideGain: GainNode | null = null;
+  private internalGuideTrack: EngineTrack;
   private smartRouting = true;
 
   private master: GainNode;
@@ -145,7 +145,33 @@ export class AudioEngine {
       outputBus: 'OUT_6',
       bus: 'UTILITY',
       pitchEnabled: false,
-      targetVol: 0.85,
+      targetVol: 0.75,
+      audible: true,
+      sources: [],
+      secondarySources: [],
+    };
+
+    // Initialize standalone internal Guide Track node (Software Neural Voice Guide IA)
+    const guideGain = this.ctx.createGain();
+    const guidePan = this.ctx.createStereoPanner();
+    const guideSplitter = this.ctx.createChannelSplitter(2);
+    const guideAnalyser = this.ctx.createAnalyser();
+    guideAnalyser.fftSize = 512;
+    guideGain.connect(guidePan);
+    guidePan.connect(guideAnalyser);
+
+    this.internalGuideTrack = {
+      id: '__AUTO_GUIDE',
+      buffer: null,
+      gain: guideGain,
+      pan: guidePan,
+      splitter: guideSplitter,
+      analyser: guideAnalyser,
+      data: new Float32Array(512),
+      outputBus: 'OUT_5',
+      bus: 'UTILITY',
+      pitchEnabled: false,
+      targetVol: 0.9,
       audible: true,
       sources: [],
       secondarySources: [],
@@ -268,6 +294,9 @@ export class AudioEngine {
     if (this.internalClickTrack) {
       this.routeTrackNode(this.internalClickTrack);
     }
+    if (this.internalGuideTrack) {
+      this.routeTrackNode(this.internalGuideTrack);
+    }
   }
 
   setSmartRouting(enabled: boolean) {
@@ -277,6 +306,9 @@ export class AudioEngine {
     }
     if (this.internalClickTrack) {
       this.routeTrackNode(this.internalClickTrack);
+    }
+    if (this.internalGuideTrack) {
+      this.routeTrackNode(this.internalGuideTrack);
     }
   }
 
@@ -330,7 +362,7 @@ export class AudioEngine {
     return this.useDualDevices && this.secondaryCtx ? this.secondaryCtx : this.ctx;
   }
 
-  getGuideDestinationNode(guideTrackId?: string): AudioNode {
+  getGuideDestinationNode(): AudioNode {
     if (this.useDualDevices && this.secondaryCtx) {
       if (!this.secondaryGuideGain) {
         this.secondaryGuideGain = this.secondaryCtx.createGain();
@@ -340,20 +372,37 @@ export class AudioEngine {
       }
       return this.secondaryGuideGain;
     }
+    return this.internalGuideTrack.gain;
+  }
 
-    const t = guideTrackId ? this.tracks.get(guideTrackId) : undefined;
-    if (t) return t.gain;
-
-    if (this.multichannelActive && this.merger) {
-      if (!this.internalGuideGain) {
-        this.internalGuideGain = this.ctx.createGain();
-        const guideCh = Math.max(0, (this.asioMapping.guideOut || 3) - 1);
-        this.internalGuideGain.connect(this.merger, 0, Math.min(guideCh, this.merger.numberOfInputs - 1));
-      }
-      return this.internalGuideGain;
+  setInternalClickMix(volume: number, mute: boolean, outputBus: OutputBus = 'OUT_6') {
+    this.internalClickTrack.targetVol = volume;
+    this.internalClickTrack.audible = !mute;
+    if (outputBus !== this.internalClickTrack.outputBus) {
+      this.internalClickTrack.outputBus = outputBus;
+      this.routeTrackNode(this.internalClickTrack);
     }
+    const now = this.ctx.currentTime;
+    const effective = mute ? 0 : volume;
+    this.internalClickTrack.gain.gain.setTargetAtTime(effective, now, 0.015);
+    if (this.internalClickTrack.secondaryGain && this.secondaryCtx) {
+      this.internalClickTrack.secondaryGain.gain.setTargetAtTime(effective, this.secondaryCtx.currentTime, 0.015);
+    }
+  }
 
-    return this.master;
+  setInternalGuideMix(volume: number, mute: boolean, outputBus: OutputBus = 'OUT_5') {
+    this.internalGuideTrack.targetVol = volume;
+    this.internalGuideTrack.audible = !mute;
+    if (outputBus !== this.internalGuideTrack.outputBus) {
+      this.internalGuideTrack.outputBus = outputBus;
+      this.routeTrackNode(this.internalGuideTrack);
+    }
+    const now = this.ctx.currentTime;
+    const effective = mute ? 0 : volume;
+    this.internalGuideTrack.gain.gain.setTargetAtTime(effective, now, 0.015);
+    if (this.secondaryGuideGain && this.secondaryCtx) {
+      this.secondaryGuideGain.gain.setTargetAtTime(effective, this.secondaryCtx.currentTime, 0.015);
+    }
   }
 
   setAsioConfig(
@@ -567,11 +616,11 @@ export class AudioEngine {
       const isTwoOuts = this.asioMapping.mode === '2';
 
       if (isTwoOuts) {
-        if (t.outputBus === 'OUT_6' || t.id === 'click') {
+        if (t.outputBus === 'OUT_6') {
           t.pan.connect(t.splitter);
           t.splitter.connect(this.merger, 0, 0); // Out 1 (Left - Click strictly isolated)
           return;
-        } else if (t.outputBus === 'OUT_5' || t.id === 'guide') {
+        } else if (t.outputBus === 'OUT_5') {
           const guideCh = Math.max(0, (this.asioMapping.guideOut || 2) - 1);
           t.pan.connect(t.splitter);
           t.splitter.connect(this.merger, 0, Math.min(guideCh, maxCh - 1)); // Out 2 (Guide strictly isolated)
@@ -583,7 +632,7 @@ export class AudioEngine {
       }
 
       // OUT_6 (Click): Dynamic physical channel (Default: Channel 4 in 4-outs, Channel 6 in 6-outs)
-      if (t.outputBus === 'OUT_6' || t.id === 'click') {
+      if (t.outputBus === 'OUT_6') {
         const clickCh = Math.max(0, (this.asioMapping.clickOut || 4) - 1);
         t.pan.connect(t.splitter);
         t.splitter.connect(this.merger, 0, Math.min(clickCh, maxCh - 1));
@@ -591,7 +640,7 @@ export class AudioEngine {
       }
 
       // OUT_5 (Guide): Dynamic physical channel (Default: Channel 3 in 4-outs, Channel 5 in 6-outs)
-      if (t.outputBus === 'OUT_5' || t.id === 'guide') {
+      if (t.outputBus === 'OUT_5') {
         const guideCh = Math.max(0, (this.asioMapping.guideOut || 3) - 1);
         t.pan.connect(t.splitter);
         t.splitter.connect(this.merger, 0, Math.min(guideCh, maxCh - 1));
@@ -632,11 +681,11 @@ export class AudioEngine {
     }
 
     // MODE 3: Standard WASAPI Stereo (SmartRouting Split L/R if enabled)
-    if (this.smartRouting && (t.outputBus === 'OUT_6' || t.id === 'click')) {
+    if (this.smartRouting && (t.outputBus === 'OUT_6' || t.id === '__INTERNAL_CLICK')) {
       t.pan.pan.value = -1; // Hard left for Click strictly
       t.pan.connect(this.master);
       return;
-    } else if (this.smartRouting && (t.outputBus === 'OUT_5' || t.id === 'guide')) {
+    } else if (this.smartRouting && (t.outputBus === 'OUT_5' || t.id === '__AUTO_GUIDE')) {
       t.pan.pan.value = 1; // Dedicated output for Guide; NEVER forced into Click Left channel!
       t.pan.connect(this.master);
       return;
@@ -808,16 +857,6 @@ export class AudioEngine {
     // If dual devices active and track has secondary gain:
     if (t.secondaryGain && this.secondaryCtx) {
       t.secondaryGain.gain.setTargetAtTime(effectiveVol, this.secondaryCtx.currentTime, 0.015);
-    }
-
-    // Synchronize internal native metronome track with Click strip adjustments
-    if (outputBus === 'OUT_6' || id === 'click' || id.toLowerCase().includes('click')) {
-      this.internalClickTrack.targetVol = volume;
-      this.internalClickTrack.audible = audible;
-      this.internalClickTrack.gain.gain.setTargetAtTime(effectiveVol, now, 0.015);
-      if (this.internalClickTrack.secondaryGain && this.secondaryCtx) {
-        this.internalClickTrack.secondaryGain.gain.setTargetAtTime(effectiveVol, this.secondaryCtx.currentTime, 0.015);
-      }
     }
   }
 
@@ -1113,23 +1152,24 @@ export class AudioEngine {
   }
 
   trackPeak(id: string): number {
-    const t = this.tracks.get(id) || (id === 'click' || id === '__INTERNAL_CLICK' ? this.internalClickTrack : undefined);
+    const t =
+      this.tracks.get(id) ||
+      (id === 'click' || id === '__INTERNAL_CLICK' ? this.internalClickTrack : undefined) ||
+      (id === 'guide' || id === '__AUTO_GUIDE' ? this.internalGuideTrack : undefined);
     return t ? this.level(t.analyser, t.data).peak : 0;
   }
 
   trackMetrics(id: string): { peak: number; rms: number } {
-    const t = this.tracks.get(id) || (id === 'click' || id === '__INTERNAL_CLICK' ? this.internalClickTrack : undefined);
+    const t =
+      this.tracks.get(id) ||
+      (id === 'click' || id === '__INTERNAL_CLICK' ? this.internalClickTrack : undefined) ||
+      (id === 'guide' || id === '__AUTO_GUIDE' ? this.internalGuideTrack : undefined);
     return t ? this.level(t.analyser, t.data) : { peak: 0, rms: 0 };
   }
 
   // --- Autonomous Click (Continuous Metronome) API ---
 
   getClickTrack(): EngineTrack {
-    for (const t of this.tracks.values()) {
-      if (t.id === 'click' || t.outputBus === 'OUT_6' || (t.bus === 'UTILITY' && t.id.toLowerCase().includes('click'))) {
-        return t;
-      }
-    }
     return this.internalClickTrack;
   }
 
@@ -1167,16 +1207,18 @@ export class AudioEngine {
   }
 
   private triggerClickHit(when: number, kind: 'accent' | 'quarter' | 'sub') {
-    // CRITICAL: If the multitrack already brings a recorded click stem,
-    // do not fire internal oscillator clicks while playing to avoid collision and double-clicking!
-    if (this.playing && this.hasRecordedClick) {
-      return;
+    const clickTrack = this.internalClickTrack;
+    if (!clickTrack || !clickTrack.audible) return;
+
+    // Prevent collision if multitrack has an audible recorded click stem playing and autonomous click is not forced
+    if (this.playing && this.hasRecordedClick && !this.autonomousClick) {
+      const audibleRecordedClick = Array.from(this.tracks.values()).some(
+        (t) => t.audible && t.id !== '__INTERNAL_CLICK' && (t.outputBus === 'OUT_6' || t.id.toLowerCase().includes('click')),
+      );
+      if (audibleRecordedClick) return;
     }
 
     const targetCtx = this.ctx;
-    const clickTrack = this.getClickTrack();
-
-    if (clickTrack && !clickTrack.audible) return;
 
     const sound = this.metronomeSound;
     const freq =

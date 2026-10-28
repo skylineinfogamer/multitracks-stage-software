@@ -186,6 +186,33 @@ export function CatalogDialog({
                 {syncing ? 'Sincronizando…' : 'Atualizar / Sincronizar'}
               </button>
 
+              {isAdmin && catalog.length > 0 && (
+                <button
+                  className="btn small"
+                  onClick={() => {
+                    if (confirm('Deseja limpar todo o catálogo para atualizar do zero com os novos arquivos?')) {
+                      masterCatalogService.clearCatalog();
+                      setCatalog([]);
+                      setSyncStatus('🗑️ Catálogo limpo com sucesso! Clique em "Atualizar / Sincronizar" para ler os novos arquivos.');
+                      setTimeout(() => setSyncStatus(null), 4000);
+                    }
+                  }}
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    borderColor: '#ef4444',
+                    color: '#f87171',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                  title="Limpar todo o catálogo para nova sincronização"
+                >
+                  <span>🗑️</span> Limpar Catálogo
+                </button>
+              )}
+
               <button
                 className="btn small primary"
                 style={{

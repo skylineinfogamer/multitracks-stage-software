@@ -14,7 +14,6 @@ import type {
   Song,
   SongTransition,
   Track,
-  OutputBus,
 } from './types';
 import { AudioEngine } from './audio/engine';
 import { PadPlayer, parsePadKeyFromFileName } from './audio/pads';
@@ -56,6 +55,8 @@ import { CatalogDialog } from './components/CatalogDialog';
 import { AdminPanelDialog } from './components/AdminPanelDialog';
 import { RemoteControlDialog } from './components/RemoteControlDialog';
 import { SubscriptionGuardModal } from './components/SubscriptionGuardModal';
+import { UpdateDialog } from './components/UpdateDialog';
+import { useAutoUpdater } from './hooks/useAutoUpdater';
 import { remoteControlService } from './services/remoteControlService';
 import { authService } from './saas/AuthService';
 import { subscriptionService } from './saas/SubscriptionService';
@@ -205,6 +206,20 @@ export default function App() {
     driverName: 'ASIO4ALL v2',
     bufferSize: 128,
   });
+
+  // Auto-Updater Hook
+  const {
+    updateAvailable,
+    updateInfo,
+    isChecking: isCheckingUpdates,
+    isDownloading: isDownloadingUpdate,
+    downloadProgress: updateProgress,
+    downloadStatus: updateStatus,
+    error: updateError,
+    checkForUpdates,
+    downloadAndApply: applyUpdate,
+    dismissUpdate,
+  } = useAutoUpdater();
 
   const engineRef = useRef<AudioEngine | null>(null);
   const padRef = useRef<PadPlayer | null>(null);
@@ -390,6 +405,24 @@ export default function App() {
       song.formantPreserve ?? 0.75,
     );
   }, [engine, song?.id, song?.pitchOffset, song?.pitchCents, song?.pitchMode, song?.formantPreserve]);
+
+  // Sync Software Metronome settings to engine
+  useEffect(() => {
+    engine.setInternalClickMix(
+      settings.internalClickVolume ?? 0.75,
+      Boolean(settings.internalClickMute),
+      settings.internalClickOutput ?? 'OUT_6',
+    );
+  }, [engine, settings.internalClickVolume, settings.internalClickMute, settings.internalClickOutput]);
+
+  // Sync Software Neural Guide IA settings to engine
+  useEffect(() => {
+    engine.setInternalGuideMix(
+      settings.autoGuideVolume ?? 0.9,
+      Boolean(settings.autoGuideMute || !settings.guideEnabled),
+      settings.autoGuideOutput ?? 'OUT_5',
+    );
+  }, [engine, settings.autoGuideVolume, settings.autoGuideMute, settings.guideEnabled, settings.autoGuideOutput]);
 
   // ------------------------------------------------------------ song loading (pure stems; pitch shifting is real-time in StudioPitchBusRack)
   const buildBuffers = useCallback(
@@ -684,11 +717,11 @@ export default function App() {
         if (anySolo && guide && !guide.solo) return;
       }
 
-      const effectiveVol = Math.max(0, Math.min(1.2, autoVol * (guide ? guide.volume / 0.9 : 1)));
+      const effectiveVol = autoVol;
 
       // Spoken vocal announcement via selected Neural AI Guide Voice pack
       const guideCtx = engine.getGuideContext();
-      const guideDest = engine.getGuideDestinationNode(guide?.id);
+      const guideDest = engine.getGuideDestinationNode();
       speakWithGuidePack(
         guideCtx,
         guideDest,
@@ -1853,15 +1886,22 @@ export default function App() {
             guideFlash={!!guideFlash}
             autoGuideVolume={settings.autoGuideVolume ?? 0.9}
             autoGuideMute={Boolean(settings.autoGuideMute || !settings.guideEnabled)}
+            autoGuideOutput={settings.autoGuideOutput ?? 'OUT_5'}
             masterVolume={settings.masterVolume}
             clickSubdivision={settings.clickSubdivision ?? (settings.clickSubdivide ? '1/8' : '1/4')}
             clickSound={settings.clickSound ?? 'woodblock'}
             autonomousClick={autonomousClick}
+            internalClickVolume={settings.internalClickVolume ?? 0.75}
+            internalClickMute={Boolean(settings.internalClickMute)}
+            internalClickOutput={settings.internalClickOutput ?? 'OUT_6'}
             onToggleAutonomousClick={toggleAutonomousClick}
             onClickSubdivision={(clickSubdivision) =>
               setSettings((s) => ({ ...s, clickSubdivision, clickSubdivide: clickSubdivision !== '1/4' }))
             }
             onClickSound={(clickSound) => setSettings((s) => ({ ...s, clickSound }))}
+            onInternalClickVolume={(v) => setSettings((s) => ({ ...s, internalClickVolume: v }))}
+            onInternalClickMute={() => setSettings((s) => ({ ...s, internalClickMute: !s.internalClickMute }))}
+            onInternalClickOutput={(out) => setSettings((s) => ({ ...s, internalClickOutput: out }))}
             onAutoGuideVolume={(v) => setSettings((s) => ({ ...s, autoGuideVolume: v, guideEnabled: true, autoGuideMute: false }))}
             onAutoGuideMute={() =>
               setSettings((s) => ({
@@ -1870,6 +1910,7 @@ export default function App() {
                 autoGuideMute: !s.autoGuideMute,
               }))
             }
+            onAutoGuideOutput={(out) => setSettings((s) => ({ ...s, autoGuideOutput: out }))}
             onTestAutoGuide={() => {
               const sec =
                 song?.sections[curIdx >= 0 ? curIdx : 0] ?? {
@@ -1884,30 +1925,9 @@ export default function App() {
             onMasterVolume={(v) => setSettings((s) => ({ ...s, masterVolume: v }))}
             onTrack={(trackId, patch) => {
               if (!song) return;
-              updateSong(song.id, (s) => {
-                const existing = s.tracks.find(
-                  (t) => t.id === trackId || (trackId === 'click' && t.kind === 'click') || (trackId === 'guide' && t.kind === 'guide'),
-                );
-                if (existing) {
-                  return { tracks: s.tracks.map((t) => (t.id === existing.id ? { ...t, ...patch } : t)) };
-                }
-                const isClick = trackId.toLowerCase().includes('click') || patch.kind === 'click';
-                const newTr: Track = {
-                  id: trackId,
-                  name: isClick ? 'CLICK' : 'GUIA',
-                  color: isClick ? '#F39C12' : '#0099FF',
-                  kind: isClick ? 'click' : 'guide',
-                  bus: 'UTILITY',
-                  output: (isClick ? 'OUT_6' : 'OUT_5') as OutputBus,
-                  volume: isClick ? 0.75 : 0.9,
-                  pan: 0,
-                  mute: false,
-                  solo: false,
-                  pitchShift: false,
-                  ...patch,
-                };
-                return { tracks: [newTr, ...s.tracks] };
-              });
+              updateSong(song.id, (s) => ({
+                tracks: s.tracks.map((t) => (t.id === trackId ? { ...t, ...patch } : t)),
+              }));
             }}
             onBusGroup={handleBusGroup}
             onSmartRouting={() => setSettings((s) => ({ ...s, smartRouting: !s.smartRouting }))}
@@ -2065,6 +2085,8 @@ export default function App() {
           }}
           onClose={() => setDialog(null)}
           onOpenRemote={() => setDialog('remote')}
+          onCheckForUpdates={() => void checkForUpdates(true)}
+          isCheckingUpdates={isCheckingUpdates}
         />
       )}
       {dialog === 'edit' && song && (
@@ -2164,6 +2186,19 @@ export default function App() {
           onUnlocked={() => {
             setSubscriptionVersion((v) => v + 1);
           }}
+        />
+      )}
+
+      {/* Auto-Updater Modal (Dark Mode) */}
+      {updateAvailable && (
+        <UpdateDialog
+          updateInfo={updateInfo}
+          isDownloading={isDownloadingUpdate}
+          downloadProgress={updateProgress}
+          downloadStatus={updateStatus}
+          error={updateError}
+          onUpdate={applyUpdate}
+          onClose={dismissUpdate}
         />
       )}
     </div>
