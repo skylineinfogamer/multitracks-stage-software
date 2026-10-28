@@ -36,11 +36,18 @@ fn extract_archive<R: io::Read + io::Seek>(
 
     let mut archive = ZipArchive::new(reader).map_err(|e| format!("Falha ao ler ZIP: {}", e))?;
     let mut audio_paths: Vec<String> = Vec::new();
+    let total_entries = archive.len();
 
-    for i in 0..archive.len() {
-        let mut file = archive
-            .by_index(i)
-            .map_err(|e| format!("Erro ao descompactar entrada {} do ZIP: {}", i, e))?;
+    println!("[ZIP] Iniciando extração de {} entradas do pacote ZIP...", total_entries);
+
+    for i in 0..total_entries {
+        let mut file = match archive.by_index(i) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("[ZIP] Arquivo {}/{} inacessível no ZIP: {}. Ignorando e continuando...", i + 1, total_entries, e);
+                continue;
+            }
+        };
 
         if file.is_dir() {
             continue;
@@ -48,7 +55,10 @@ fn extract_archive<R: io::Read + io::Seek>(
 
         let enclosed = match file.enclosed_name() {
             Some(path) => path.to_owned(),
-            None => continue,
+            None => {
+                eprintln!("[ZIP] Nome de arquivo inválido na entrada {}/{}. Ignorando...", i + 1, total_entries);
+                continue;
+            }
         };
 
         let file_name_str = enclosed.to_string_lossy();
@@ -63,14 +73,30 @@ fn extract_archive<R: io::Read + io::Seek>(
 
         let out_path = target_dir.join(&enclosed);
         if let Some(parent) = out_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Falha ao criar subdiretório: {}", e))?;
+            if let Err(e) = fs::create_dir_all(parent) {
+                eprintln!("[ZIP] Falha ao criar pasta pai {:?} ({}/{}): {}. Ignorando...", parent, i + 1, total_entries, e);
+                continue;
+            }
         }
 
-        let mut out_file = File::create(&out_path)
-            .map_err(|e| format!("Falha ao criar arquivo de áudio {:?}: {}", out_path, e))?;
-        io::copy(&mut file, &mut out_file)
-            .map_err(|e| format!("Falha ao extrair dados para {:?}: {}", out_path, e))?;
+        let mut out_file = match File::create(&out_path) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("[ZIP] Falha ao criar arquivo no disco {:?} ({}/{}): {}. Ignorando...", out_path, i + 1, total_entries, e);
+                continue;
+            }
+        };
+
+        match io::copy(&mut file, &mut out_file) {
+            Ok(bytes) => {
+                println!("[ZIP] Extraído com sucesso ({}/{}): {:?} ({} bytes)", i + 1, total_entries, out_path.file_name().unwrap_or_default(), bytes);
+            }
+            Err(e) => {
+                eprintln!("[ZIP] Falha ao descompactar dados de {:?} ({}/{}): {}. Ignorando arquivo corrompido e continuando...", out_path, i + 1, total_entries, e);
+                let _ = fs::remove_file(&out_path);
+                continue;
+            }
+        }
 
         if is_audio_file(&out_path) {
             let abs_path = out_path
@@ -81,8 +107,13 @@ fn extract_archive<R: io::Read + io::Seek>(
         }
     }
 
+    if audio_paths.is_empty() {
+        return Err("Nenhum arquivo de áudio válido (.wav, .mp3, etc.) pôde ser extraído do pacote ZIP.".to_string());
+    }
+
     // Sort paths alphabetically so stems are in predictable order
     audio_paths.sort();
+    println!("[ZIP] Extração finalizada: {} arquivos de áudio válidos encontrados.", audio_paths.len());
 
     Ok(audio_paths)
 }
@@ -144,5 +175,26 @@ pub fn extract_multitrack_zip_bytes(
 /// Lê os bytes de um arquivo de áudio extraído no disco
 #[tauri::command]
 pub fn read_audio_file(file_path: String) -> Result<Vec<u8>, String> {
-    fs::read(&file_path).map_err(|e| format!("Falha ao ler arquivo de áudio {}: {}", file_path, e))
+    let p = Path::new(&file_path);
+    if !p.exists() {
+        let err_msg = format!("Arquivo de áudio não encontrado: {}", file_path);
+        eprintln!("[read_audio_file] {}", err_msg);
+        return Err(err_msg);
+    }
+
+    match fs::read(&file_path) {
+        Ok(bytes) => {
+            if bytes.is_empty() {
+                let err_msg = format!("Arquivo de áudio está vazio (0 bytes): {}", file_path);
+                eprintln!("[read_audio_file] {}", err_msg);
+                return Err(err_msg);
+            }
+            Ok(bytes)
+        }
+        Err(e) => {
+            let err_msg = format!("Falha de I/O ao ler {}: {}", file_path, e);
+            eprintln!("[read_audio_file] {}", err_msg);
+            Err(err_msg)
+        }
+    }
 }

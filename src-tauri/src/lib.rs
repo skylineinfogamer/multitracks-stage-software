@@ -10,6 +10,9 @@ use remote_server::{generate_qr_svg, get_all_local_ips, get_best_local_ip, start
 mod zip_extractor;
 use zip_extractor::{extract_multitrack_zip, extract_multitrack_zip_bytes, read_audio_file};
 
+mod downloader;
+use downloader::{download_and_extract_vs, download_cloud_file_to_cache};
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -474,7 +477,9 @@ pub fn run() {
             broadcast_remote_state,
             extract_multitrack_zip,
             extract_multitrack_zip_bytes,
-            read_audio_file
+            read_audio_file,
+            download_and_extract_vs,
+            download_cloud_file_to_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

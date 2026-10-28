@@ -23,7 +23,6 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
   const [churchName, setChurchName] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [registeredPendingUser, setRegisteredPendingUser] = useState<User | null>(null);
   const [pendingLoginNotice, setPendingLoginNotice] = useState<{
     name: string;
     email: string;
@@ -38,18 +37,27 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
   // Renewal checkout panel
   const [showRenewPanel, setShowRenewPanel] = useState(false);
   const [renewPlan, setRenewPlan] = useState<'monthly' | 'annual'>('monthly');
-  const [renewFeedback, setRenewFeedback] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
   const handleLaunchCheckout = async () => {
-    const url = subscriptionService.getCheckoutUrl(renewPlan);
-    setRenewFeedback(`Abrindo checkout seguro InfinitePay no navegador...`);
-    const ok = await openExternalUrl(url);
-    if (ok) {
-      setRenewFeedback(`✅ Checkout InfinitePay aberto com sucesso no seu navegador padrão!`);
-    } else {
-      setRenewFeedback(`⚠️ Acesse o checkout diretamente pelo link: ${url}`);
+    let url = '';
+    if (currentUser) {
+      try {
+        const res = await subscriptionService.createInfinitePayCharge(
+          currentUser.id,
+          renewPlan,
+          'card',
+          { name: currentUser.name, email: currentUser.email },
+        );
+        url = res.redirectUrl || res.checkoutUrl;
+      } catch {
+        /* fallback to static */
+      }
     }
+    if (!url) {
+      url = subscriptionService.getCheckoutUrl(renewPlan);
+    }
+    await openExternalUrl(url);
   };
 
   const handleCopyCheckoutUrl = () => {
@@ -84,35 +92,15 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
     }
   };
 
-  const handleOpenWhatsAppNotice = (u: User) => {
-    const cleanPhone = masterCatalogService.getAdminWhatsAppNumber().replace(/\D/g, '');
-    const msg = `Olá! Meu nome é *${u.name}* (${u.email}) e acabei de me cadastrar no *Worship Tools* (${u.churchName || 'Igreja'}).\n\nGostaria de solicitar a liberação do meu acesso ao catálogo e mixer!`;
-    openExternalUrl(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`);
-  };
-
-  const handleFinishPendingNotice = () => {
-    if (registeredPendingUser) {
-      const u = registeredPendingUser;
-      setRegisteredPendingUser(null);
-      setCurrentUser(u);
-      onSuccess?.(u);
-      onClose();
-    }
-  };
-
   const handleRegister = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setErrorMsg(null);
     setLoading(true);
     try {
       const user = await authService.register(name, email, password, churchName, 'user');
-      if (user.status === 'pending') {
-        setRegisteredPendingUser(user);
-      } else {
-        setCurrentUser(user);
-        onSuccess?.(user);
-        onClose();
-      }
+      setCurrentUser(user);
+      onSuccess?.(user);
+      onClose();
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
@@ -144,74 +132,6 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
       setErrorMsg((err as Error).message);
     }
   };
-
-  if (registeredPendingUser) {
-    return (
-      <Modal
-        title="Cadastro Recebido — Worship Tools"
-        onClose={handleFinishPendingNotice}
-        footer={
-          <>
-            <button
-              className="btn"
-              style={{ background: '#25D366', color: '#fff', border: 'none', fontWeight: 700 }}
-              onClick={() => handleOpenWhatsAppNotice(registeredPendingUser)}
-            >
-              💬 Avisar Administrador no WhatsApp
-            </button>
-            <button className="btn primary" onClick={handleFinishPendingNotice}>
-              Entendido
-            </button>
-          </>
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div
-            style={{
-              background: '#16181E',
-              border: '1px solid #F59E0B',
-              borderRadius: 10,
-              padding: 18,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 30 }}>⏳</span>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16, color: '#fde68a' }}>Cadastro Realizado com Sucesso!</h3>
-                <span style={{ fontSize: 12, color: '#9ca3af' }}>Aguardando Liberação da Administração</span>
-              </div>
-            </div>
-            <p style={{ margin: 0, fontSize: 13, color: '#e5e7eb', lineHeight: 1.6 }}>
-              Olá, <strong>{registeredPendingUser.name}</strong>! Sua conta foi criada no Supabase e vinculada à igreja{' '}
-              <strong>{registeredPendingUser.churchName || 'Ministério de Louvor'}</strong>.
-            </p>
-            <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
-              Seu acesso está atualmente com o status <b>Pendente</b>. A administração foi notificada para analisar e liberar seu
-              acesso ao catálogo central de MultiTracks e ao mixer do sistema.
-            </p>
-          </div>
-
-          <div
-            style={{
-              background: '#12141a',
-              border: '1px solid #232733',
-              borderRadius: 8,
-              padding: 14,
-              fontSize: 12,
-              color: '#94a3b8',
-              lineHeight: 1.5,
-            }}
-          >
-            💡 <b>Dica:</b> Para agilizar a liberação da sua conta, clique no botão <b>Avisar Administrador no WhatsApp</b>{' '}
-            abaixo informando seu e-mail cadastrado.
-          </div>
-        </div>
-      </Modal>
-    );
-  }
 
   if (currentUser) {
     return (
@@ -581,21 +501,6 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
                     {copiedLink ? '✅ Copiado!' : '📋 Copiar Link'}
                   </button>
                 </div>
-
-                {renewFeedback && (
-                  <div
-                    style={{
-                      fontSize: 11,
-                      padding: '6px 10px',
-                      borderRadius: 4,
-                      background: renewFeedback.includes('✅') ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                      border: `1px solid ${renewFeedback.includes('✅') ? '#10b981' : '#ef4444'}`,
-                      color: renewFeedback.includes('✅') ? '#6ee7b7' : '#fca5a5',
-                    }}
-                  >
-                    {renewFeedback}
-                  </div>
-                )}
               </div>
             )}
           </div>

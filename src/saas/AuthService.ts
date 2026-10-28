@@ -119,7 +119,7 @@ class AuthService {
               planId: 'monthly',
               planName: 'Plano Worship Mensal',
               status: 'active',
-              provider: 'stripe',
+              provider: 'infinitepay',
               currentPeriodEnd: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(),
               priceBrl: 49.90,
               billingCycle: 'monthly',
@@ -229,8 +229,8 @@ class AuthService {
         ? 'active'
         : ((profile?.status || sbUser.user_metadata?.status || 'pending') as UserApprovalStatus);
 
-    // If account is pending or rejected, immediately revoke session
-    if (role !== 'admin' && (status === 'pending' || status === 'rejected')) {
+    // If account is rejected, immediately revoke session
+    if (role !== 'admin' && status === 'rejected') {
       await supabase.auth.signOut().catch(() => {});
       this.currentSession = null;
       localStorage.removeItem(LS_SESSION_KEY);
@@ -495,24 +495,6 @@ class AuthService {
 
       // RIGOROUS CLOUD ACCESS STATUS CHECK:
       if (role !== 'admin') {
-        if (status === 'pending') {
-          // Immediately revoke session in Supabase Auth & wipe local session cache
-          await supabase.auth.signOut().catch(() => {});
-          this.currentSession = null;
-          localStorage.removeItem(LS_SESSION_KEY);
-          this.notify();
-
-          const err: any = new Error('PENDING_APPROVAL');
-          err.code = 'PENDING_APPROVAL';
-          err.user = {
-            id: authUser.id,
-            name: userName,
-            email: cleanEmail,
-            churchName: userChurch,
-          };
-          throw err;
-        }
-
         if (status === 'rejected') {
           // Immediately revoke session
           await supabase.auth.signOut().catch(() => {});
@@ -531,13 +513,13 @@ class AuthService {
         }
       }
 
-      // If active (or admin), assemble authenticated user
+      // Assemble authenticated user (pending users will have status: 'pending' so guard modal presents checkout)
       const activeUser: User = {
         id: authUser.id,
         name: userName,
         email: cleanEmail,
         role,
-        status: 'active',
+        status: status === 'pending' ? 'pending' : 'active',
         churchName: userChurch,
         createdAt: profile?.created_at || authUser.created_at || new Date().toISOString(),
         subscription:
@@ -586,12 +568,6 @@ class AuthService {
     );
 
     if (localUser && localUser.passwordHash === btoa(cleanPass)) {
-      if (localUser.role !== 'admin' && localUser.status === 'pending') {
-        const err: any = new Error('PENDING_APPROVAL');
-        err.code = 'PENDING_APPROVAL';
-        err.user = { name: localUser.name, email: localUser.email, churchName: localUser.churchName };
-        throw err;
-      }
       if (localUser.role !== 'admin' && localUser.status === 'rejected') {
         const err: any = new Error('ACCESS_REJECTED');
         err.code = 'ACCESS_REJECTED';
@@ -699,15 +675,9 @@ class AuthService {
       console.warn('Aviso ao registrar perfil no Supabase:', profileErr);
     }
 
-    // 3. Close auth session immediately so pending user cannot stay logged in
-    await supabase.auth.signOut().catch(() => {});
-    this.currentSession = null;
-    localStorage.removeItem(LS_SESSION_KEY);
-    this.notify();
-
     const initialSubscription: UserSubscription = {
       planId: 'monthly',
-      planName: 'Plano Worship Mensal (Aguardando Aprovação)',
+      planName: 'Plano Worship Mensal',
       status: 'unpaid',
       provider: 'infinitepay',
       currentPeriodEnd: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
@@ -731,7 +701,9 @@ class AuthService {
     this.users.push(newUser);
     this.saveUsers();
 
-    return this.sanitizeUser(newUser);
+    // Keep session active for the newly registered user so they proceed directly to payment options
+    const sess = this.setSession(newUser);
+    return sess.user;
   }
 
   /**

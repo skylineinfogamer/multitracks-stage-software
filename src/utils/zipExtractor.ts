@@ -65,12 +65,16 @@ export async function processZipFile(
         const p = audioPaths[i];
         const baseName = p.split(/[/\\]/).pop() || `track_${i}.wav`;
         onProgress?.(`A descompactar ficheiros de áudio (${i + 1}/${audioPaths.length}): ${baseName}…`);
-        const ab = await readAudioFileNative(p);
-        candidates.push({
-          name: baseName,
-          data: ab,
-          path: p,
-        });
+        try {
+          const ab = await readAudioFileNative(p);
+          candidates.push({
+            name: baseName,
+            data: ab,
+            path: p,
+          });
+        } catch (trackErr) {
+          console.error(`[ZipExtractor] Falha ao ler track ${i + 1}/${audioPaths.length} (${baseName}):`, trackErr);
+        }
       }
 
       return candidates;
@@ -90,12 +94,16 @@ export async function processZipFile(
         const p = audioPaths[i];
         const baseName = p.split(/[/\\]/).pop() || `track_${i}.wav`;
         onProgress?.(`A descompactar ficheiros de áudio (${i + 1}/${audioPaths.length}): ${baseName}…`);
-        const ab = await readAudioFileNative(p);
-        candidates.push({
-          name: baseName,
-          data: ab,
-          path: p,
-        });
+        try {
+          const ab = await readAudioFileNative(p);
+          candidates.push({
+            name: baseName,
+            data: ab,
+            path: p,
+          });
+        } catch (trackErr) {
+          console.error(`[ZipExtractor] Falha ao ler track ${i + 1}/${audioPaths.length} (${baseName}):`, trackErr);
+        }
       }
 
       return candidates;

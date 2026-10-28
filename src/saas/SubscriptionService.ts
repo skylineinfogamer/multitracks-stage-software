@@ -2,6 +2,7 @@ import { authService } from './AuthService';
 import { supabase } from './supabaseClient';
 import type {
   PaymentGatewayConfig,
+  PaymentProvider,
   PlanDetails,
   SubscriptionPlanId,
   SubscriptionStatus,
@@ -168,9 +169,10 @@ class SubscriptionService {
     customer?: { name?: string; email?: string; phone?: string; cpf?: string },
   ): Promise<{
     ok: boolean;
-    pixCode: string;
-    qrcodeUrl: string;
+    redirectUrl?: string;
     checkoutUrl: string;
+    pixCode?: string;
+    qrcodeUrl?: string;
     chargeId: string;
     amountFormatted: string;
   }> {
@@ -190,20 +192,28 @@ class SubscriptionService {
       });
 
       if (!error && data && data.ok) {
-        return data;
+        const checkoutUrl = data.redirect_url || data.checkoutUrl || '';
+        return {
+          ...data,
+          redirectUrl: checkoutUrl,
+          checkoutUrl,
+        };
+      }
+      if (error) {
+        console.warn('[SubscriptionService] Edge function invoke error:', error);
       }
     } catch (edgeErr) {
       console.warn('[SubscriptionService] Edge function invoke fallback:', edgeErr);
     }
 
     const plan = this.getPlan(planId);
-    const handle = this.config.infinitepayHandle?.replace(/^\$/, '') || 'multitracks_pro';
     const pixCode = `00020126580014br.gov.bcb.pix0136${userId}520400005303986540${plan.priceBrl.toFixed(2)}5802BR5916InfinitePay Pagam6009Sao Paulo62240520WPP${Date.now()}6304`;
     const qrcodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(pixCode)}`;
-    const checkoutUrl = `https://infinitepay.io/pay/${handle}/${plan.priceBrl.toFixed(2)}`;
+    const checkoutUrl = this.getCheckoutUrl(planId);
 
     return {
       ok: true,
+      redirectUrl: checkoutUrl,
       pixCode,
       qrcodeUrl,
       checkoutUrl,

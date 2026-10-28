@@ -13,10 +13,13 @@ interface Props {
   onUnlocked?: () => void;
 }
 
+export type PaymentMode = 'select_plan' | 'pix_qrcode';
+
 export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: Props) {
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanId>('monthly');
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('select_plan');
 
   const [pixData, setPixData] = useState<{
     pixCode: string;
@@ -31,6 +34,8 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
   // Assim que a Edge Function do Webhook atualizar o status para 'active', desbloqueia automaticamente!
   useEffect(() => {
     if (!user.id) return;
+
+    console.log(`[Supabase Realtime] Inicializando listener para o usuário: ${user.id}`);
 
     const channel = supabase
       .channel(`profile-subscription-realtime-${user.id}`)
@@ -54,9 +59,11 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
           }
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log(`[Supabase Realtime] Status da conexão: ${status}`);
+      });
 
-    // Polling de redundância a cada 4 segundos caso o WebSocket Realtime sofra restrição de rede
+    // Polling de redundância a cada 3 segundos caso o WebSocket Realtime sofra restrição de rede
     const interval = setInterval(async () => {
       try {
         const refreshed = await authService.refreshCurrentUser();
@@ -71,7 +78,7 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
       } catch {
         /* ignore */
       }
-    }, 4000);
+    }, 3000);
 
     return () => {
       supabase.removeChannel(channel);
@@ -81,7 +88,7 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
 
   const handleCreatePixInfinitePay = async () => {
     setLoading(true);
-    setFeedback('⚡ Gerando cobrança PIX via InfinitePay Edge Function...');
+    setFeedback('⚡ Gerando cobrança PIX via InfinitePay...');
     try {
       const res = await subscriptionService.createInfinitePayCharge(
         user.id,
@@ -89,29 +96,61 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
         'pix',
         { name: user.name, email: user.email },
       );
-      if (res && res.pixCode) {
+
+      // 1. Verifica se contém pixCode (PIX Copia e Cola) e qrcodeUrl
+      if (res && res.pixCode && res.qrcodeUrl) {
         setPixData({
           pixCode: res.pixCode,
           qrcodeUrl: res.qrcodeUrl,
-          checkoutUrl: res.checkoutUrl,
+          checkoutUrl: res.redirectUrl || res.checkoutUrl,
           amountFormatted: res.amountFormatted,
         });
-        setFeedback('⚡ QR Code PIX gerado! Pague com seu banco para liberação automática via Realtime.');
+        // NÃO abre o navegador externo! Renderiza na própria tela do software:
+        setPaymentMode('pix_qrcode');
+        setFeedback('⚡ QR Code PIX gerado! Pague com seu app de banco para liberação automática.');
+      } else if (res && (res.redirectUrl || res.checkoutUrl)) {
+        // Fallback: se não vierem os dados de PIX, abre a URL de checkout no navegador
+        const url = res.redirectUrl || res.checkoutUrl;
+        await openExternalUrl(url);
+        setFeedback('✅ Abrindo checkout InfinitePay no seu navegador...');
+      } else {
+        throw new Error('Não foi possível gerar os dados de pagamento da InfinitePay.');
       }
     } catch (e: any) {
-      setFeedback(`❌ Falha ao gerar PIX: ${e.message || String(e)}`);
+      setFeedback(`❌ Falha ao processar PIX: ${e.message || String(e)}`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleOpenInfinitePayCard = async () => {
-    const url = pixData?.checkoutUrl || subscriptionService.getCheckoutUrl(selectedPlan, 'infinitepay');
-    const opened = await openExternalUrl(url);
-    if (opened) {
-      setFeedback('✅ Abrindo checkout com cartão InfinitePay no seu navegador...');
-    } else {
-      setFeedback(`⚠️ Acesse o checkout diretamente pelo link: ${url}`);
+    setLoading(true);
+    setFeedback('⚡ Gerando checkout para Cartão de Crédito...');
+    try {
+      const res = await subscriptionService.createInfinitePayCharge(
+        user.id,
+        selectedPlan,
+        'card',
+        { name: user.name, email: user.email },
+      );
+      const url = res.redirectUrl || res.checkoutUrl;
+      if (url) {
+        // Abre no navegador padrão usando a API do Tauri
+        const opened = await openExternalUrl(url);
+        if (opened) {
+          setFeedback('✅ Abrindo checkout com Cartão InfinitePay no seu navegador padrão...');
+        } else {
+          setFeedback(`⚠️ Acesse o checkout diretamente pelo link: ${url}`);
+        }
+      } else {
+        throw new Error('URL de checkout não retornada pela InfinitePay.');
+      }
+    } catch (e: any) {
+      const fallbackUrl = subscriptionService.getCheckoutUrl(selectedPlan);
+      await openExternalUrl(fallbackUrl);
+      setFeedback(`⚠️ Abrindo link alternativo de checkout: ${e.message || String(e)}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -131,41 +170,34 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
     openExternalUrl(url);
   };
 
-  const handleCheckApprovalStatus = async () => {
+  const handleCheckStatus = async () => {
     setLoading(true);
-    setFeedback('Consultando status da sua conta no Supabase...');
+    setFeedback('Consultando confirmação de pagamento no Supabase...');
     try {
       const refreshed = await authService.refreshCurrentUser();
       if (refreshed && refreshed.status === 'active') {
-        setFeedback('🎉 Seu cadastro foi aprovado com sucesso! Liberando acesso...');
+        setPaymentConfirmed(true);
+        setFeedback('🎉 Pagamento identificado! Seu acesso foi liberado com sucesso.');
         setTimeout(() => {
           onUnlocked?.();
-        }, 1000);
-      } else if (refreshed && refreshed.status === 'rejected') {
-        setFeedback('❌ Seu cadastro foi recusado pela administração.');
-      } else {
-        setFeedback('⏳ Seu cadastro ainda está em análise pela administração. Você também pode avisar o administrador pelo WhatsApp.');
+        }, 1200);
+        return;
       }
-    } catch {
-      setFeedback('Erro ao consultar o servidor. Verifique sua conexão.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCheckStatus = () => {
-    setLoading(true);
-    setFeedback('Consultando gateway de pagamento InfinitePay...');
-    setTimeout(() => {
-      setLoading(false);
       const res = subscriptionService.checkUserAccess(user);
       if (res.allowed) {
+        setPaymentConfirmed(true);
         setFeedback('🎉 Pagamento identificado! Seu acesso foi liberado.');
-        onUnlocked?.();
+        setTimeout(() => {
+          onUnlocked?.();
+        }, 1200);
       } else {
         setFeedback('Ainda não identificamos a confirmação bancária. Se acabou de pagar via Pix ou Cartão, aguarde alguns instantes para a compensação e verifique novamente.');
       }
-    }, 1200);
+    } catch {
+      setFeedback('Erro ao consultar status. Verifique sua conexão.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -201,9 +233,11 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
         {/* Banner Alert Top */}
         <div
           style={{
-            background: isPending
-              ? 'linear-gradient(90deg, #b45309, #f59e0b)'
-              : 'linear-gradient(90deg, #991b1b, #ef4444)',
+            background: isRejected
+              ? 'linear-gradient(90deg, #991b1b, #ef4444)'
+              : isPending
+              ? 'linear-gradient(90deg, #059669, #10b981)'
+              : 'linear-gradient(90deg, #b45309, #d97706)',
             padding: '16px 20px',
             color: '#fff',
             display: 'flex',
@@ -212,13 +246,13 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 24 }}>{isPending ? '⏳' : isRejected ? '⛔' : '⚠️'}</span>
+            <span style={{ fontSize: 24 }}>{isRejected ? '⛔' : isPending ? '⚡' : '⚠️'}</span>
             <div>
               <strong style={{ fontSize: 14, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                {isPending
-                  ? 'CADASTRO EM ANÁLISE — AGUARDANDO APROVAÇÃO'
-                  : isRejected
+                {isRejected
                   ? 'ACESSO RECUSADO PELA ADMINISTRAÇÃO'
+                  : isPending
+                  ? '⚡ ATIVAÇÃO DA CONTA — ESCOLHA SEU PLANO'
                   : 'ACESSO BLOQUEADO — ASSINATURA EXPIRADA'}
               </strong>
               <div style={{ fontSize: 12, opacity: 0.95, marginTop: 2 }}>
@@ -245,98 +279,7 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
 
         {/* Modal Body */}
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 18, color: '#f1f5f9' }}>
-          {isPending ? (
-            /* Pending Approval View */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div
-                style={{
-                  background: '#16181E',
-                  border: '1px solid #332B18',
-                  borderRadius: 10,
-                  padding: 16,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                }}
-              >
-                <div style={{ fontSize: 14, color: '#fde68a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>⏳</span> Seu cadastro foi recebido com sucesso!
-                </div>
-                <div style={{ fontSize: 13, color: '#d1d5db', lineHeight: 1.6 }}>
-                  {reason ||
-                    'Seu cadastro está em análise pela administração. Você receberá acesso assim que for aprovado pela nossa equipe.'}
-                </div>
-                <div style={{ fontSize: 12, color: '#9ca3af', borderTop: '1px solid #272a33', paddingTop: 10 }}>
-                  Igreja cadastrada: <strong style={{ color: '#fff' }}>{user.churchName || 'Não informada'}</strong>
-                </div>
-              </div>
-
-              {/* Blocked resources notice */}
-              <div
-                style={{
-                  background: '#12141a',
-                  border: '1px solid #1f232e',
-                  borderRadius: 8,
-                  padding: '12px 16px',
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: 8,
-                  fontSize: 12,
-                }}
-              >
-                <div style={{ color: '#fbbf24' }}>🔒 Mixer e Reprodução de Stems</div>
-                <div style={{ color: '#fbbf24' }}>🔒 Catálogo Master Google Drive</div>
-                <div style={{ color: '#fbbf24' }}>🔒 Download de VS Offline</div>
-                <div style={{ color: '#fbbf24' }}>🔒 Sincronização de Repertórios</div>
-              </div>
-
-              {/* Actions */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
-                <button
-                  onClick={handleCheckApprovalStatus}
-                  disabled={loading}
-                  style={{
-                    background: '#0099FF',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 8,
-                    padding: '12px 18px',
-                    fontWeight: 700,
-                    fontSize: 13,
-                    cursor: loading ? 'wait' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    boxShadow: '0 4px 14px rgba(0, 153, 255, 0.3)',
-                  }}
-                >
-                  {loading ? 'Consultando status...' : '🔄 Já fui aprovado? Verificar Status Agora'}
-                </button>
-
-                <button
-                  onClick={handleOpenWhatsApp}
-                  style={{
-                    background: '#25D366',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 8,
-                    padding: '12px 18px',
-                    fontWeight: 700,
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    boxShadow: '0 4px 14px rgba(37, 211, 102, 0.25)',
-                  }}
-                >
-                  💬 Solicitar Liberação ao Administrador no WhatsApp
-                </button>
-              </div>
-            </div>
-          ) : isRejected ? (
+          {isRejected ? (
             /* Rejected View */
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div
@@ -398,11 +341,12 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
               </div>
             </div>
           ) : (
-            /* Expired Subscription View (Standard) */
+            /* Active Payment & Subscription View (For both newly registered & expired accounts) */
             <>
               <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
-                {reason ||
-                  'Seu período de assinatura encerrou ou o pagamento da mensalidade está pendente. Para continuar utilizando o mixer de palco, vozes guias e o download de MultiTracks do Google Drive, regularize sua assinatura:'}
+                {isPending
+                  ? `Olá, ${user.name}! Seu cadastro foi concluído com sucesso. Para ativar sua conta e liberar o acesso completo ao mixer de palco, vozes guias e ao download de MultiTracks, escolha seu plano abaixo:`
+                  : (reason || 'Seu período de assinatura encerrou ou o pagamento da mensalidade está pendente. Para continuar utilizando o mixer de palco, vozes guias e o download de MultiTracks do Google Drive, regularize sua assinatura:')}
               </div>
 
               {/* Blocked items notification */}
@@ -424,239 +368,380 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
                 <div style={{ color: '#f87171' }}>🔒 Sincronização de Repertórios</div>
               </div>
 
-              {/* Plan Options Selector */}
-              <div>
+              {/* VIEW 1: PIX IN-APP QR CODE PAYMENT */}
+              {paymentMode === 'pix_qrcode' && pixData ? (
                 <div
                   style={{
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: '#94a3b8',
-                    marginBottom: 8,
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.8,
-                  }}
-                >
-                  Escolha seu Plano de Renovação:
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {plans.map((p) => {
-                    const isSelected = selectedPlan === p.id;
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => setSelectedPlan(p.id)}
-                        style={{
-                          background: isSelected ? '#161e2e' : '#12141a',
-                          border: isSelected ? '2px solid #0099FF' : '1px solid #272a33',
-                          borderRadius: 8,
-                          padding: 14,
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                          position: 'relative',
-                        }}
-                      >
-                        {p.badge && (
-                          <span
-                            style={{
-                              position: 'absolute',
-                              top: -9,
-                              right: 10,
-                              background: '#0099FF',
-                              color: '#fff',
-                              fontSize: 9,
-                              fontWeight: 800,
-                              padding: '2px 8px',
-                              borderRadius: 10,
-                              letterSpacing: 0.5,
-                            }}
-                          >
-                            {p.badge}
-                          </span>
-                        )}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <strong style={{ fontSize: 15, color: isSelected ? '#38bdf8' : '#f8fafc' }}>{p.name}</strong>
-                          <input
-                            type="radio"
-                            checked={isSelected}
-                            onChange={() => setSelectedPlan(p.id)}
-                            style={{ accentColor: '#0099FF' }}
-                          />
-                        </div>
-                        <div style={{ fontSize: 20, fontWeight: 800, color: '#fff', marginTop: 6 }}>
-                          R$ {p.priceBrl.toFixed(2).replace('.', ',')}
-                          <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>
-                            /{p.interval === 'annual' ? 'ano' : 'mês'}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{p.description}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* PIX QR Code Display Box (InfinitePay) */}
-              {pixData && (
-                <div
-                  style={{
-                    background: '#161922',
+                    background: '#13151b',
                     border: '1px solid #10b981',
-                    borderRadius: 10,
-                    padding: 16,
+                    borderRadius: 12,
+                    padding: 20,
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: 12,
-                    boxShadow: '0 8px 24px rgba(16, 185, 129, 0.15)',
+                    gap: 16,
+                    boxShadow: '0 10px 30px rgba(16, 185, 129, 0.15)',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#34d399', fontWeight: 700, fontSize: 14 }}>
-                    <span>⚡</span> QR Code PIX (InfinitePay) — {pixData.amountFormatted}
-                  </div>
-
-                  {/* QR Code Image */}
+                  {/* Top Bar inside PIX View */}
                   <div
                     style={{
-                      background: '#fff',
-                      padding: 10,
-                      borderRadius: 8,
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      width: '100%',
+                      borderBottom: '1px solid #232733',
+                      paddingBottom: 12,
+                      flexWrap: 'wrap',
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 22 }}>⚡</span>
+                      <div>
+                        <strong style={{ fontSize: 15, color: '#34d399' }}>Pagamento via PIX — InfinitePay</strong>
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                          Plano: <b style={{ color: '#fff' }}>{plans.find((p) => p.id === selectedPlan)?.name}</b> · Valor: <b style={{ color: '#38bdf8' }}>{pixData.amountFormatted}</b>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('select_plan')}
+                      className="btn small"
+                      style={{ fontSize: 11, color: '#cbd5e1', borderColor: '#334155' }}
+                    >
+                      ⬅️ Trocar Plano
+                    </button>
+                  </div>
+
+                  {/* QR Code Container */}
+                  <div
+                    style={{
+                      background: '#ffffff',
+                      padding: 14,
+                      borderRadius: 12,
+                      boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
                     }}
                   >
                     <img
                       src={pixData.qrcodeUrl}
                       alt="PIX QR Code InfinitePay"
-                      style={{ width: 180, height: 180, display: 'block' }}
+                      style={{ width: 200, height: 200, display: 'block', borderRadius: 4 }}
                     />
                   </div>
 
-                  <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
-                    Abra o app do seu banco, escolha <b>PIX &gt; Pagar com QR Code</b> ou copie o código abaixo:
+                  {/* Instructions */}
+                  <div style={{ fontSize: 12, color: '#cbd5e1', textAlign: 'center', maxWidth: 440, lineHeight: 1.5 }}>
+                    1. Abra o app do seu banco ou instituição financeira.<br />
+                    2. Acesse a área <b>PIX</b> e escolha <b>Ler QR Code</b> ou <b>Pix Copia e Cola</b>.<br />
+                    3. Assim que efetuar o pagamento, a liberação ocorre <b>automaticamente nesta tela</b>!
                   </div>
 
                   {/* Copia e Cola Box */}
-                  <div style={{ width: '100%', display: 'flex', gap: 6 }}>
-                    <input
-                      type="text"
-                      readOnly
-                      value={pixData.pixCode}
-                      style={{
-                        flex: 1,
-                        background: '#0d0e12',
-                        border: '1px solid #2e323b',
-                        color: '#94a3b8',
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                        padding: '8px 10px',
-                        borderRadius: 6,
-                      }}
-                    />
-                    <button
-                      className="btn primary"
-                      style={{ background: '#10b981', borderColor: '#10b981', color: '#fff', fontSize: 12, fontWeight: 700 }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(pixData.pixCode);
-                        setCopiedPix(true);
-                        setTimeout(() => setCopiedPix(false), 3000);
-                      }}
-                    >
-                      {copiedPix ? '✅ Copiado!' : '📋 Copiar'}
-                    </button>
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+                      Código PIX Copia e Cola:
+                    </label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        type="text"
+                        readOnly
+                        value={pixData.pixCode}
+                        onFocus={(e) => e.target.select()}
+                        style={{
+                          flex: 1,
+                          background: '#090a0d',
+                          border: '1px solid #272a33',
+                          color: '#38bdf8',
+                          fontSize: 11.5,
+                          fontFamily: 'monospace',
+                          padding: '10px 12px',
+                          borderRadius: 6,
+                          letterSpacing: 0.3,
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn primary"
+                        style={{
+                          background: copiedPix ? '#059669' : '#10b981',
+                          borderColor: copiedPix ? '#059669' : '#10b981',
+                          color: '#fff',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          padding: '0 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          whiteSpace: 'nowrap',
+                        }}
+                        onClick={() => {
+                          navigator.clipboard.writeText(pixData.pixCode);
+                          setCopiedPix(true);
+                          setTimeout(() => setCopiedPix(false), 3000);
+                        }}
+                      >
+                        {copiedPix ? '✅ Copiado!' : '📋 Copiar Código'}
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Live Supabase Realtime indicator */}
+                  {/* Supabase Realtime Live Indicator */}
                   <div
                     style={{
+                      width: '100%',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 8,
-                      fontSize: 11.5,
+                      justifyContent: 'center',
+                      gap: 10,
+                      fontSize: 12,
                       color: paymentConfirmed ? '#34d399' : '#38bdf8',
-                      background: paymentConfirmed ? 'rgba(16, 185, 129, 0.15)' : 'rgba(0, 153, 255, 0.1)',
-                      padding: '6px 12px',
-                      borderRadius: 20,
-                      border: `1px solid ${paymentConfirmed ? '#10b981' : 'rgba(0, 153, 255, 0.3)'}`,
+                      background: paymentConfirmed ? 'rgba(16, 185, 129, 0.15)' : 'rgba(0, 153, 255, 0.08)',
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      border: `1px solid ${paymentConfirmed ? '#10b981' : 'rgba(0, 153, 255, 0.25)'}`,
                     }}
                   >
-                    <span style={{ display: 'inline-block', animation: paymentConfirmed ? 'none' : 'spin 1.5s linear infinite' }}>
+                    <span style={{ fontSize: 16 }}>
                       {paymentConfirmed ? '🎉' : '🔄'}
                     </span>
-                    <span>
+                    <span style={{ fontWeight: 600 }}>
                       {paymentConfirmed
                         ? 'Pagamento Confirmado! Desbloqueando software…'
-                        : 'Aguardando pagamento via Supabase Realtime (liberação automática)…'}
+                        : 'Aguardando confirmação em tempo real (Supabase Realtime)…'}
                     </span>
                   </div>
+
+                  {/* Action buttons inside PIX view */}
+                  <div style={{ display: 'flex', gap: 10, width: '100%', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={handleCheckStatus}
+                      disabled={loading}
+                      style={{
+                        flex: 1,
+                        background: '#1f242d',
+                        border: '1px solid #3b4252',
+                        color: '#f8fafc',
+                        borderRadius: 8,
+                        padding: '10px 14px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: loading ? 'wait' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      {loading ? 'Consultando…' : '🔄 Já Paguei? Verificar Status'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('select_plan')}
+                      style={{
+                        background: '#16181e',
+                        border: '1px solid #2e323b',
+                        color: '#94a3b8',
+                        borderRadius: 8,
+                        padding: '10px 14px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ⬅️ Escolher Outro Método
+                    </button>
+
+                    {pixData.checkoutUrl && (
+                      <button
+                        type="button"
+                        onClick={() => openExternalUrl(pixData.checkoutUrl)}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid #334155',
+                          color: '#94a3b8',
+                          borderRadius: 8,
+                          padding: '10px 14px',
+                          fontSize: 11,
+                          cursor: 'pointer',
+                        }}
+                        title="Abrir página completa de checkout no navegador externo"
+                      >
+                        🌐 Pagar pelo Navegador
+                      </button>
+                    )}
+                  </div>
                 </div>
+              ) : (
+                /* VIEW 2: SELECT PLAN AND CHOOSE PAYMENT METHOD */
+                <>
+                  {/* Plan Options Selector */}
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: '#94a3b8',
+                        marginBottom: 8,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.8,
+                      }}
+                    >
+                      Escolha seu Plano de Renovação:
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      {plans.map((p) => {
+                        const isSelected = selectedPlan === p.id;
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => setSelectedPlan(p.id)}
+                            style={{
+                              background: isSelected ? '#161e2e' : '#12141a',
+                              border: isSelected ? '2px solid #0099FF' : '1px solid #272a33',
+                              borderRadius: 8,
+                              padding: 14,
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              position: 'relative',
+                            }}
+                          >
+                            {p.badge && (
+                              <span
+                                style={{
+                                  position: 'absolute',
+                                  top: -9,
+                                  right: 10,
+                                  background: '#0099FF',
+                                  color: '#fff',
+                                  fontSize: 9,
+                                  fontWeight: 800,
+                                  padding: '2px 8px',
+                                  borderRadius: 10,
+                                  letterSpacing: 0.5,
+                                }}
+                              >
+                                {p.badge}
+                              </span>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ fontSize: 15, color: isSelected ? '#38bdf8' : '#f8fafc' }}>{p.name}</strong>
+                              <input
+                                type="radio"
+                                checked={isSelected}
+                                onChange={() => setSelectedPlan(p.id)}
+                                style={{ accentColor: '#0099FF' }}
+                              />
+                            </div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: '#fff', marginTop: 6 }}>
+                              R$ {p.priceBrl.toFixed(2).replace('.', ',')}
+                              <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>
+                                /{p.interval === 'annual' ? 'ano' : 'mês'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{p.description}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Action Buttons: InfinitePay (PIX & Cartão) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
+                      <button
+                        onClick={handleCreatePixInfinitePay}
+                        disabled={loading}
+                        style={{
+                          background: '#10b981',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '12px 16px',
+                          fontWeight: 800,
+                          fontSize: 13.5,
+                          cursor: loading ? 'wait' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+                        }}
+                      >
+                        ⚡ {loading ? 'Gerando PIX…' : 'Pagar via PIX (InfinitePay)'}
+                      </button>
+
+                      <button
+                        onClick={handleOpenInfinitePayCard}
+                        disabled={loading}
+                        style={{
+                          background: '#0ea5e9',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '12px 16px',
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: loading ? 'wait' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          boxShadow: '0 4px 12px rgba(14, 165, 233, 0.3)',
+                        }}
+                      >
+                        💳 Cartão (InfinitePay)
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <button
+                        onClick={handleCheckStatus}
+                        disabled={loading}
+                        style={{
+                          flex: 1,
+                          background: '#1f242d',
+                          border: '1px solid #3b4252',
+                          color: '#e2e8f0',
+                          borderRadius: 8,
+                          padding: '10px 14px',
+                          fontSize: 12.5,
+                          fontWeight: 600,
+                          cursor: loading ? 'wait' : 'pointer',
+                        }}
+                      >
+                        {loading ? 'Consultando InfinitePay…' : '🔄 Já Paguei? Verificar Status Agora'}
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+                      <button
+                        type="button"
+                        onClick={handleOpenWhatsApp}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#94a3b8',
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        💬 Dúvidas ou precisa de suporte com sua conta? Falar no WhatsApp
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
-
-              {/* Action Buttons: InfinitePay & Stripe */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
-                  <button
-                    onClick={handleCreatePixInfinitePay}
-                    disabled={loading}
-                    style={{
-                      background: '#10b981',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 8,
-                      padding: '12px 16px',
-                      fontWeight: 800,
-                      fontSize: 13.5,
-                      cursor: loading ? 'wait' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
-                    }}
-                  >
-                    ⚡ {loading ? 'Gerando PIX…' : 'Pagar via PIX (InfinitePay)'}
-                  </button>
-
-                  <button
-                    onClick={handleOpenInfinitePayCard}
-                    style={{
-                      background: '#0ea5e9',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 8,
-                      padding: '12px 16px',
-                      fontWeight: 700,
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      boxShadow: '0 4px 12px rgba(14, 165, 233, 0.3)',
-                    }}
-                  >
-                    💳 Cartão (InfinitePay)
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <button
-                    onClick={handleCheckStatus}
-                    disabled={loading}
-                    style={{
-                      flex: 1,
-                      background: '#1f242d',
-                      border: '1px solid #3b4252',
-                      color: '#e2e8f0',
-                      borderRadius: 8,
-                      padding: '10px 14px',
-                      fontSize: 12.5,
-                      fontWeight: 600,
-                      cursor: loading ? 'wait' : 'pointer',
-                    }}
-                  >
-                    {loading ? 'Consultando InfinitePay…' : '🔄 Já Paguei? Verificar Status Agora'}
-                  </button>
-                </div>
-              </div>
             </>
           )}
 

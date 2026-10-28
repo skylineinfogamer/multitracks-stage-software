@@ -58,15 +58,19 @@ serve(async (req: Request) => {
       });
     }
 
-    // 3. Extrai o ID do usuário dos metadados
-    const metadata = payload.metadata || payload.data?.metadata || payload.charge?.metadata || {};
-    const userId = metadata.user_id || payload.user_id || payload.customer_id;
-    const planId = metadata.plan_id || "monthly";
+    // 3. Extrai o ID do usuário dos metadados ou query string da URL
+    const reqUrl = new URL(req.url);
+    const queryUserId = reqUrl.searchParams.get("user_id");
+    const queryPlanId = reqUrl.searchParams.get("plan_id");
+
+    const metadata = payload.metadata || payload.data?.metadata || payload.charge?.metadata || payload.invoice?.metadata || {};
+    const userId = metadata.user_id || payload.user_id || payload.customer_id || payload.order_id || queryUserId;
+    const planId = metadata.plan_id || payload.plan_id || queryPlanId || "monthly";
 
     if (!userId) {
-      console.warn("[InfinitePay Webhook] userId não encontrado no metadata do payload:", payload);
+      console.warn("[InfinitePay Webhook] userId não encontrado no payload ou na URL:", payload);
       return new Response(
-        JSON.stringify({ error: "No userId provided in metadata." }),
+        JSON.stringify({ error: "No userId provided in metadata or URL." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

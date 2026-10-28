@@ -3,7 +3,7 @@ import { openUrl as tauriOpenUrl } from '@tauri-apps/plugin-opener';
 
 /**
  * Universal external URL opener for Tauri desktop and browser.
- * Ensures that payment checkout URLs (Stripe / Asaas) open properly
+ * Ensures that payment checkout URLs (InfinitePay) open properly
  * in the user's default browser (Edge, Chrome, etc.).
  */
 export async function openExternalUrl(url: string): Promise<boolean> {

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { Song, Track } from '../types';
 import { guessTrack, orderTracksForStage, uid } from '../music';
 import { decodeAudioDataSafe, saveStem } from '../storage';
@@ -65,6 +66,60 @@ async function cloudFetch(
     json: () => resp.json(),
     arrayBuffer: () => resp.arrayBuffer(),
   };
+}
+
+interface DriveFileItem {
+  id: string;
+  name: string;
+  size?: string;
+  webContentLink?: string;
+  mimeType?: string;
+  parents?: string[];
+  modifiedTime?: string;
+}
+
+/** Fetches all files from Google Drive matching query, automatically paginating through all pages */
+async function fetchAllDriveFiles(
+  query: string,
+  token: string,
+  fields = 'nextPageToken, files(id, name, size, webContentLink, mimeType, parents, modifiedTime)',
+): Promise<DriveFileItem[]> {
+  const allFiles: DriveFileItem[] = [];
+  let pageToken: string | undefined = undefined;
+  let pageCount = 0;
+
+  do {
+    pageCount++;
+    const params = new URLSearchParams({
+      q: query,
+      fields,
+      pageSize: '1000',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+    });
+    if (pageToken) {
+      params.set('pageToken', pageToken);
+    }
+
+    const url = `https://www.googleapis.com/drive/v3/files?${params.toString()}`;
+    const resp = await cloudFetch(url, {
+      authHeader: `Bearer ${token.trim()}`,
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.warn(`[Google Drive] Erro ao buscar página ${pageCount}:`, resp.status, errText);
+      break;
+    }
+
+    const data = await resp.json();
+    if (data.files && Array.isArray(data.files)) {
+      allFiles.push(...data.files);
+    }
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return allFiles;
 }
 
 /** Convert PEM to PKCS8 binary DER */
@@ -393,53 +448,55 @@ class MasterCatalogService {
           console.warn('Verificação de catalog-index.json:', idxErr);
         }
 
-        // 2. Scan subfolders in Google Drive (each folder represents a MultiTrack song)
-        let qStr = "mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+        // 2. Scan subfolders in Google Drive (each folder represents a MultiTrack song or container)
+        onProgress?.('Buscando estrutura de pastas no Google Drive...');
+        const allDriveFolders = await fetchAllDriveFiles(
+          "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+          token,
+          'nextPageToken, files(id, name, parents, modifiedTime)',
+        );
+
+        let folders: DriveFileItem[] = [];
+        const descendantFolderIds = new Set<string>();
+
         if (rootFolderId.trim()) {
-          qStr = `'${rootFolderId.trim()}' in parents and ${qStr}`;
-        }
-        const q = encodeURIComponent(qStr);
-        const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&pageSize=100`;
-
-        const resp = await cloudFetch(url, {
-          authHeader: `Bearer ${token.trim()}`,
-        });
-
-        if (!resp.ok) {
-          const errBody = await resp.text();
-          throw new Error(`Google Drive API retornou erro HTTP ${resp.status}: ${errBody}`);
-        }
-
-        const data = await resp.json();
-        const folders: { id: string; name: string }[] = data.files || [];
-
-        if (folders.length === 0 && newSongs.length === 0) {
-          onProgress?.(`Nenhuma pasta encontrada. Certifique-se de compartilhar a pasta do seu Google Drive com: ${serviceAccount?.client_email}`);
-          return { count: this.catalog.length, songs: this.catalog };
+          descendantFolderIds.add(rootFolderId.trim());
+          let addedNew = true;
+          while (addedNew) {
+            addedNew = false;
+            for (const f of allDriveFolders) {
+              if (!descendantFolderIds.has(f.id) && f.parents?.some((p) => descendantFolderIds.has(p))) {
+                descendantFolderIds.add(f.id);
+                addedNew = true;
+              }
+            }
+          }
+          folders = allDriveFolders.filter(
+            (f) => f.id !== rootFolderId.trim() && descendantFolderIds.has(f.id),
+          );
+        } else {
+          folders = allDriveFolders;
         }
 
         if (folders.length > 0) {
-          onProgress?.(`Encontradas ${folders.length} pastas de músicas no Google Drive. Mapeando canais e isolando Click & Guia…`);
+          onProgress?.(`Encontradas ${folders.length} pastas no Google Drive. Mapeando conteúdos e arquivos…`);
 
           for (let idx = 0; idx < folders.length; idx++) {
             const folder = folders[idx];
             onProgress?.(`Escaneando (${idx + 1}/${folders.length}): ${folder.name}…`);
 
-            // List files in this folder
-            const fq = encodeURIComponent(`'${folder.id}' in parents and trashed = false`);
-            const fUrl = `https://www.googleapis.com/drive/v3/files?q=${fq}&fields=files(id,name,size,webContentLink)&pageSize=100`;
+            const files = await fetchAllDriveFiles(
+              `'${folder.id}' in parents and trashed = false`,
+              token,
+              'nextPageToken, files(id, name, size, webContentLink, mimeType)',
+            );
 
-            const fResp = await cloudFetch(fUrl, {
-              authHeader: `Bearer ${token.trim()}`,
-            });
-
-            if (!fResp.ok) continue;
-
-            const fData = await fResp.json();
-            const files: { id: string; name: string; size?: string; webContentLink?: string }[] = fData.files || [];
+            if (files.length === 0) continue;
 
             // Check if folder contains a catalog-index.json / song.json
-            const folderIndexFile = files.find((f) => f.name.toLowerCase() === 'catalog-index.json' || f.name.toLowerCase() === 'song.json');
+            const folderIndexFile = files.find(
+              (f) => f.name.toLowerCase() === 'catalog-index.json' || f.name.toLowerCase() === 'song.json',
+            );
             if (folderIndexFile) {
               try {
                 const sResp = await cloudFetch(`https://www.googleapis.com/drive/v3/files/${folderIndexFile.id}?alt=media`, {
@@ -447,7 +504,6 @@ class MasterCatalogService {
                 });
                 if (sResp.ok) {
                   const sJson = await sResp.json();
-                  // parse stems from json with strict separation of combined click & guide
                   const sStems: CatalogStem[] = [];
                   for (let i = 0; i < (sJson.stems || []).length; i++) {
                     const st = sJson.stems[i];
@@ -520,18 +576,48 @@ class MasterCatalogService {
               }
             }
 
+            // Check if folder contains a .zip file (packaged multitrack)
+            const zipInFolder = files.find((f) => /\.zip$/i.test(f.name));
+            if (zipInFolder) {
+              const cleanName = folder.name.replace(/\.zip$/i, '');
+              let bpm = 72;
+              let key = 'G';
+              const bpmMatch = cleanName.match(/\b(\d{2,3})\s*bpm\b/i);
+              if (bpmMatch) bpm = parseInt(bpmMatch[1], 10);
+              const keyMatch = cleanName.match(/\b([A-G][#b]?m?)\b/);
+              if (keyMatch) key = keyMatch[1];
+              const parts = cleanName.split(' - ').map((s) => s.trim());
+              const title = parts[0] || cleanName;
+              const artist = parts[1] || 'Ministério de Louvor';
+
+              newSongs.push({
+                id: `gdrive_zip_${zipInFolder.id}`,
+                title,
+                artist,
+                bpm,
+                key,
+                beatsPerBar: 4,
+                durationSec: 280,
+                zipFileId: zipInFolder.id,
+                zipDownloadUrl: `https://www.googleapis.com/drive/v3/files/${zipInFolder.id}?alt=media`,
+                zipFileSize: zipInFolder.size ? parseInt(zipInFolder.size, 10) : undefined,
+                provider: 'gdrive',
+                addedAt: new Date().toISOString(),
+                stems: [],
+              });
+              continue;
+            }
+
+            // Check if folder contains loose audio files (.wav, .mp3, etc.)
             const audioFiles = files.filter((f) => /\.(wav|wave|mp3|m4a|ogg|flac|aac|aiff)$/i.test(f.name));
             if (audioFiles.length === 0) continue;
 
-            // Parse metadata from folder name (e.g. "Bondade de Deus - Isaías Saad - 70BPM - G")
             let bpm = 72;
             let key = 'G';
             const bpmMatch = folder.name.match(/\b(\d{2,3})\s*bpm\b/i);
             if (bpmMatch) bpm = parseInt(bpmMatch[1], 10);
-
             const keyMatch = folder.name.match(/\b([A-G][#b]?m?)\b/);
             if (keyMatch) key = keyMatch[1];
-
             const parts = folder.name.split(' - ').map((s) => s.trim());
             const title = parts[0] || folder.name;
             const artist = parts[1] || 'Ministério de Louvor';
@@ -541,7 +627,6 @@ class MasterCatalogService {
               const f = audioFiles[i];
               const g = guessTrack(f.name, i, title);
 
-              // If file is a combined Click & Guide track, separate into two dedicated channels!
               if (g.isCombinedClickGuide || isCombinedClickGuide(f.name)) {
                 stems.push({
                   id: `stem_${f.id}_click`,
@@ -600,53 +685,57 @@ class MasterCatalogService {
           }
         }
 
-        // 3. Scan .zip multitrack files in Google Drive root folder
+        // 3. Scan ALL .zip multitrack files across Google Drive
         try {
-          let zipQ = "(name contains '.zip' or mimeType = 'application/zip' or mimeType = 'application/x-zip-compressed') and trashed = false";
-          if (rootFolderId.trim()) {
-            zipQ = `'${rootFolderId.trim()}' in parents and ${zipQ}`;
-          }
-          const zq = encodeURIComponent(zipQ);
-          const zUrl = `https://www.googleapis.com/drive/v3/files?q=${zq}&fields=files(id,name,size,webContentLink)&pageSize=100`;
+          onProgress?.('Buscando pacotes ZIP de multitracks no Google Drive…');
+          const zipQ = "(name contains '.zip' or mimeType = 'application/zip' or mimeType = 'application/x-zip-compressed') and trashed = false";
+          const allZips = await fetchAllDriveFiles(
+            zipQ,
+            token,
+            'nextPageToken, files(id, name, size, webContentLink, parents)',
+          );
 
-          const zResp = await cloudFetch(zUrl, {
-            authHeader: `Bearer ${token.trim()}`,
-          });
-
-          if (zResp.ok) {
-            const zData = await zResp.json();
-            const zipFiles: { id: string; name: string; size?: string }[] = zData.files || [];
-
-            for (const zf of zipFiles) {
-              const cleanName = zf.name.replace(/\.zip$/i, '');
-              let bpm = 72;
-              let key = 'G';
-              const bpmMatch = cleanName.match(/\b(\d{2,3})\s*bpm\b/i);
-              if (bpmMatch) bpm = parseInt(bpmMatch[1], 10);
-
-              const keyMatch = cleanName.match(/\b([A-G][#b]?m?)\b/);
-              if (keyMatch) key = keyMatch[1];
-
-              const parts = cleanName.split(' - ').map((s) => s.trim());
-              const title = parts[0] || cleanName;
-              const artist = parts[1] || 'Ministério de Louvor';
-
-              newSongs.push({
-                id: `gdrive_zip_${zf.id}`,
-                title,
-                artist,
-                bpm,
-                key,
-                beatsPerBar: 4,
-                durationSec: 280,
-                zipFileId: zf.id,
-                zipDownloadUrl: `https://www.googleapis.com/drive/v3/files/${zf.id}?alt=media`,
-                zipFileSize: zf.size ? parseInt(zf.size, 10) : undefined,
-                provider: 'gdrive',
-                addedAt: new Date().toISOString(),
-                stems: [],
-              });
+          for (const zf of allZips) {
+            // If rootFolderId is configured, ensure zip belongs to root or any descendant folder
+            if (rootFolderId.trim() && descendantFolderIds.size > 0) {
+              const inDescendant = zf.parents?.some((p) => descendantFolderIds.has(p));
+              if (!inDescendant) continue;
             }
+
+            // Avoid duplicating if already registered
+            if (newSongs.some((s) => s.zipFileId === zf.id)) continue;
+
+            const cleanName = zf.name.replace(/\.zip$/i, '');
+            let bpm = 72;
+            let key = 'G';
+            const bpmMatch = cleanName.match(/\b(\d{2,3})\s*bpm\b/i);
+            if (bpmMatch) bpm = parseInt(bpmMatch[1], 10);
+            const keyMatch = cleanName.match(/\b([A-G][#b]?m?)\b/);
+            if (keyMatch) key = keyMatch[1];
+            const parts = cleanName.split(' - ').map((s) => s.trim());
+            const title = parts[0] || cleanName;
+            const artist = parts[1] || 'Ministério de Louvor';
+
+            // Check if a song with the exact same title was already added
+            if (newSongs.some((s) => s.title.toLowerCase().trim() === title.toLowerCase().trim())) {
+              continue;
+            }
+
+            newSongs.push({
+              id: `gdrive_zip_${zf.id}`,
+              title,
+              artist,
+              bpm,
+              key,
+              beatsPerBar: 4,
+              durationSec: 280,
+              zipFileId: zf.id,
+              zipDownloadUrl: `https://www.googleapis.com/drive/v3/files/${zf.id}?alt=media`,
+              zipFileSize: zf.size ? parseInt(zf.size, 10) : undefined,
+              provider: 'gdrive',
+              addedAt: new Date().toISOString(),
+              stems: [],
+            });
           }
         } catch (zipErr) {
           console.warn('Erro ao escanear pacotes ZIP no Google Drive:', zipErr);
@@ -657,13 +746,29 @@ class MasterCatalogService {
       }
     }
 
+    // Deduplicate songs by normalized title and ID
+    const uniqueSongs: CatalogSong[] = [];
+    const seenTitles = new Set<string>();
+    const seenIds = new Set<string>();
+
+    for (const song of newSongs) {
+      const normTitle = song.title.toLowerCase().trim();
+      if (!seenTitles.has(normTitle) && !seenIds.has(song.id)) {
+        seenTitles.add(normTitle);
+        seenIds.add(song.id);
+        uniqueSongs.push(song);
+      }
+    }
+
+    onProgress?.(`✅ Catálogo atualizado com sucesso: ${uniqueSongs.length} músicas disponíveis.`);
+
     // Atualiza o catálogo diretamente com a lista atual do Google Drive
-    this.saveCatalog(newSongs);
+    this.saveCatalog(uniqueSongs);
     this.saveMasterConfig({
       lastSyncTime: new Date().toISOString(),
-      totalSyncedSongs: newSongs.length,
+      totalSyncedSongs: uniqueSongs.length,
     });
-    return { count: newSongs.length, songs: newSongs };
+    return { count: uniqueSongs.length, songs: uniqueSongs };
   }
 
   /**
@@ -675,6 +780,7 @@ class MasterCatalogService {
     ctx: AudioContext,
     onProgress: (p: DownloadProgress) => void,
   ): Promise<Song & { _preloadedBuffers: Map<string, AudioBuffer> }> {
+    const isTauri = typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__);
     const songId = uid('song');
     let maxDuration = catalogSong.durationSec || 240;
     const initialTracks: Track[] = [];
@@ -686,113 +792,187 @@ class MasterCatalogService {
 
     // 1. Caso especial: Pacote MultiTrack .ZIP completo vindo do Google Drive
     if (catalogSong.zipDownloadUrl) {
-      onProgress({
-        statusText: `Transferindo pacote ZIP de "${catalogSong.title}" do servidor central…`,
-        percent: 15,
-      });
-
       const token = await this.getAccessToken();
-      const resp = await cloudFetch(catalogSong.zipDownloadUrl, {
-        authHeader: token ? `Bearer ${token.trim()}` : undefined,
-      });
+      const extracted: Array<{ name: string; data: ArrayBuffer }> = [];
 
-      if (!resp.ok) {
-        throw new Error(`Falha ao baixar pacote ZIP do Google Drive: HTTP ${resp.status}`);
+      if (isTauri) {
+        onProgress({
+          statusText: `Transferindo pacote ZIP de "${catalogSong.title}" em segundo plano…`,
+          percent: 5,
+        });
+
+        let unlisten: (() => void) | null = null;
+        try {
+          unlisten = await listen<{ task_id: string; percent: number; status_text: string; current_track_name?: string }>(
+            'download-progress',
+            (event) => {
+              if (event.payload.task_id === songId) {
+                onProgress({
+                  statusText: event.payload.status_text,
+                  percent: event.payload.percent,
+                  currentTrackName: event.payload.current_track_name,
+                });
+              }
+            },
+          );
+
+          const rustRes = await invoke<{
+            success: boolean;
+            song_title: string;
+            zip_path: string;
+            audio_files: Array<{ file_name: string; file_path: string; file_size: number }>;
+          }>('download_and_extract_vs', {
+            url: catalogSong.zipDownloadUrl,
+            authHeader: token ? `Bearer ${token.trim()}` : undefined,
+            songTitle: catalogSong.title,
+            taskId: songId,
+          });
+
+          if (!rustRes.success || rustRes.audio_files.length === 0) {
+            throw new Error('Nenhum canal de áudio encontrado no pacote descompactado.');
+          }
+
+          onProgress({
+            statusText: `Carregando ${rustRes.audio_files.length} canais de áudio descompactados…`,
+            percent: 85,
+          });
+
+          for (let i = 0; i < rustRes.audio_files.length; i++) {
+            const f = rustRes.audio_files[i];
+            onProgress({
+              statusText: `Lendo canal (${i + 1}/${rustRes.audio_files.length}): ${f.file_name}…`,
+              percent: Math.round(85 + (i / rustRes.audio_files.length) * 5),
+              currentTrackName: f.file_name,
+            });
+            try {
+              const bytes: number[] = await invoke('read_audio_file', { filePath: f.file_path });
+              const u8 = new Uint8Array(bytes);
+              extracted.push({ name: f.file_name, data: u8.buffer });
+            } catch (err) {
+              console.error(`[Track Reader] Faixa ${i + 1}/${rustRes.audio_files.length} (${f.file_name}) falhou ao ler:`, err);
+            }
+          }
+        } finally {
+          if (unlisten) unlisten();
+        }
+      } else {
+        // Fallback para navegador web sem Tauri
+        onProgress({
+          statusText: `Transferindo pacote ZIP de "${catalogSong.title}" do servidor central…`,
+          percent: 15,
+        });
+
+        const resp = await cloudFetch(catalogSong.zipDownloadUrl, {
+          authHeader: token ? `Bearer ${token.trim()}` : undefined,
+        });
+
+        if (!resp.ok) {
+          throw new Error(`Falha ao baixar pacote ZIP do Google Drive: HTTP ${resp.status}`);
+        }
+
+        onProgress({
+          statusText: 'A descompactar ficheiros de áudio…',
+          percent: 45,
+        });
+
+        const zipBuf = await resp.arrayBuffer();
+        const browserExtracted = await processZipFile(
+          { name: `${catalogSong.title}.zip`, data: zipBuf },
+          (msg) => onProgress({ statusText: msg, percent: 60 }),
+        );
+        extracted.push(...browserExtracted);
       }
-
-      onProgress({
-        statusText: 'A descompactar ficheiros de áudio…',
-        percent: 45,
-      });
-
-      const zipBuf = await resp.arrayBuffer();
-      const extracted = await processZipFile(
-        { name: `${catalogSong.title}.zip`, data: zipBuf },
-        (msg) => onProgress({ statusText: msg, percent: 60 }),
-      );
 
       if (extracted.length === 0) {
         throw new Error('Nenhum arquivo de áudio (.wav, .mp3, .m4a) encontrado dentro do pacote ZIP baixado.');
       }
 
       onProgress({
-        statusText: `Decodificando ${extracted.length} canais de áudio descompactados…`,
-        percent: 75,
+        statusText: `Decodificando ${extracted.length} canais de áudio…`,
+        percent: 90,
       });
 
       let duration = 0;
       for (let i = 0; i < extracted.length; i++) {
         const it = extracted[i];
         onProgress({
-          statusText: `Processando canal (${i + 1}/${extracted.length}): ${it.name}…`,
-          percent: Math.round(75 + (i / extracted.length) * 20),
+          statusText: `Decodificando canal (${i + 1}/${extracted.length}): ${it.name}…`,
+          percent: Math.round(90 + (i / extracted.length) * 9),
           currentTrackName: it.name,
         });
 
-        const decoded = await decodeAudioDataSafe(ctx, it.data.slice(0));
-        if (isFinite(decoded.duration) && decoded.duration > 0) {
-          duration = Math.max(duration, decoded.duration);
+        try {
+          const decoded = await decodeAudioDataSafe(ctx, it.data.slice(0));
+          if (isFinite(decoded.duration) && decoded.duration > 0) {
+            duration = Math.max(duration, decoded.duration);
+          }
+
+          const g = guessTrack(it.name, i, catalogSong.title);
+
+          if (
+            isCombinedClickGuide(it.name) ||
+            ((g.kind === 'click' || g.kind === 'guide') && isDualChannelClickGuide(decoded))
+          ) {
+            const split = splitStereoClickGuide(ctx, decoded);
+
+            const clickId = uid('tr_click');
+            await saveStem(songId, clickId, split.clickWav);
+            preloadedBuffers.set(clickId, split.clickBuffer);
+            initialTracks.push({
+              id: clickId,
+              name: 'CLICK (Áudio Original)',
+              color: '#F39C12',
+              kind: 'audio',
+              bus: 'UTILITY',
+              output: 'OUT_6',
+              volume: 0.75,
+              pan: 0,
+              mute: false,
+              solo: false,
+              fileName: it.name,
+            });
+
+            const guideId = uid('tr_guide');
+            await saveStem(songId, guideId, split.guideWav);
+            preloadedBuffers.set(guideId, split.guideBuffer);
+            initialTracks.push({
+              id: guideId,
+              name: 'GUIDE (Áudio Original)',
+              color: '#0099FF',
+              kind: 'audio',
+              bus: 'UTILITY',
+              output: 'OUT_5',
+              volume: 0.9,
+              pan: 0,
+              mute: false,
+              solo: false,
+              fileName: it.name,
+            });
+          } else {
+            const trId = uid('tr');
+            await saveStem(songId, trId, it.data);
+            preloadedBuffers.set(trId, decoded);
+            initialTracks.push({
+              id: trId,
+              name: g.name,
+              color: g.color,
+              kind: g.kind,
+              bus: g.bus,
+              output: g.output,
+              volume: g.kind === 'click' ? 0.75 : 0.85,
+              pan: 0,
+              mute: false,
+              solo: false,
+              fileName: it.name,
+            });
+          }
+        } catch (stemErr) {
+          console.error(`[Audio Decoder] Erro ao decodificar canal ${i + 1}/${extracted.length} (${it.name}):`, stemErr);
         }
+      }
 
-        const g = guessTrack(it.name, i, catalogSong.title);
-
-        if (
-          isCombinedClickGuide(it.name) ||
-          ((g.kind === 'click' || g.kind === 'guide') && isDualChannelClickGuide(decoded))
-        ) {
-          const split = splitStereoClickGuide(ctx, decoded);
-
-          const clickId = uid('tr_click');
-          await saveStem(songId, clickId, split.clickWav);
-          preloadedBuffers.set(clickId, split.clickBuffer);
-          initialTracks.push({
-            id: clickId,
-            name: 'CLICK (Áudio Original)',
-            color: '#F39C12',
-            kind: 'audio',
-            bus: 'UTILITY',
-            output: 'OUT_6',
-            volume: 0.75,
-            pan: 0,
-            mute: false,
-            solo: false,
-            fileName: it.name,
-          });
-
-          const guideId = uid('tr_guide');
-          await saveStem(songId, guideId, split.guideWav);
-          preloadedBuffers.set(guideId, split.guideBuffer);
-          initialTracks.push({
-            id: guideId,
-            name: 'GUIDE (Áudio Original)',
-            color: '#0099FF',
-            kind: 'audio',
-            bus: 'UTILITY',
-            output: 'OUT_5',
-            volume: 0.9,
-            pan: 0,
-            mute: false,
-            solo: false,
-            fileName: it.name,
-          });
-        } else {
-          const trId = uid('tr');
-          await saveStem(songId, trId, it.data);
-          preloadedBuffers.set(trId, decoded);
-          initialTracks.push({
-            id: trId,
-            name: g.name,
-            color: g.color,
-            kind: g.kind,
-            bus: g.bus,
-            output: g.output,
-            volume: g.kind === 'click' ? 0.75 : 0.85,
-            pan: 0,
-            mute: false,
-            solo: false,
-            fileName: it.name,
-          });
-        }
+      if (initialTracks.length === 0) {
+        throw new Error('Nenhum canal de áudio pôde ser decodificado a partir do pacote.');
       }
 
       const song: Song & { _preloadedBuffers: Map<string, AudioBuffer> } = {
@@ -846,11 +1026,31 @@ class MasterCatalogService {
             let split = sharedSplitCache.get(cacheKey);
             if (!split) {
               const token = await this.getAccessToken();
-              const resp = await cloudFetch(stem.downloadUrl, {
-                authHeader: token ? `Bearer ${token.trim()}` : undefined,
-              });
-              if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-              const fullBuffer = await resp.arrayBuffer();
+              let fullBuffer: ArrayBuffer;
+              if (isTauri) {
+                try {
+                  const safeName = (stem.fileName || `stem_${stem.fileId || uid('stem')}.wav`).replace(/[\\/:*?"<>|]/g, '_');
+                  const filePath = await invoke<string>('download_cloud_file_to_cache', {
+                    url: stem.downloadUrl,
+                    authHeader: token ? `Bearer ${token.trim()}` : undefined,
+                    fileName: `${stem.fileId || uid('stem')}_${safeName}`,
+                  });
+                  const bytes: number[] = await invoke('read_audio_file', { filePath });
+                  fullBuffer = new Uint8Array(bytes).buffer;
+                } catch {
+                  const resp = await cloudFetch(stem.downloadUrl, {
+                    authHeader: token ? `Bearer ${token.trim()}` : undefined,
+                  });
+                  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                  fullBuffer = await resp.arrayBuffer();
+                }
+              } else {
+                const resp = await cloudFetch(stem.downloadUrl, {
+                  authHeader: token ? `Bearer ${token.trim()}` : undefined,
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                fullBuffer = await resp.arrayBuffer();
+              }
               const decoded = await decodeAudioDataSafe(ctx, fullBuffer.slice(0));
               split = splitStereoClickGuide(ctx, decoded);
               sharedSplitCache.set(cacheKey, split);
@@ -860,11 +1060,30 @@ class MasterCatalogService {
             rawArrayBuffer = isClick ? split.clickWav : split.guideWav;
           } else {
             const token = await this.getAccessToken();
-            const resp = await cloudFetch(stem.downloadUrl, {
-              authHeader: token ? `Bearer ${token.trim()}` : undefined,
-            });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            rawArrayBuffer = await resp.arrayBuffer();
+            if (isTauri) {
+              try {
+                const safeName = (stem.fileName || `stem_${stem.fileId || uid('stem')}.wav`).replace(/[\\/:*?"<>|]/g, '_');
+                const filePath = await invoke<string>('download_cloud_file_to_cache', {
+                  url: stem.downloadUrl,
+                  authHeader: token ? `Bearer ${token.trim()}` : undefined,
+                  fileName: `${stem.fileId || uid('stem')}_${safeName}`,
+                });
+                const bytes: number[] = await invoke('read_audio_file', { filePath });
+                rawArrayBuffer = new Uint8Array(bytes).buffer;
+              } catch {
+                const resp = await cloudFetch(stem.downloadUrl, {
+                  authHeader: token ? `Bearer ${token.trim()}` : undefined,
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                rawArrayBuffer = await resp.arrayBuffer();
+              }
+            } else {
+              const resp = await cloudFetch(stem.downloadUrl, {
+                authHeader: token ? `Bearer ${token.trim()}` : undefined,
+              });
+              if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+              rawArrayBuffer = await resp.arrayBuffer();
+            }
             audioBuffer = await decodeAudioDataSafe(ctx, rawArrayBuffer.slice(0));
 
             // If audio file has 2 channels with Click on Left and Guide on Right, split immediately!

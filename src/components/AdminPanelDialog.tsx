@@ -428,7 +428,7 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
   const handleSaveGatewayConfig = (e: React.FormEvent) => {
     e.preventDefault();
     subscriptionService.saveGatewayConfig(gatewayConfig);
-    setGatewaySavedMsg('✅ Configurações dos Gateways Stripe & Asaas salvas com sucesso!');
+    setGatewaySavedMsg('✅ Configurações do Gateway InfinitePay salvas com sucesso!');
     setTimeout(() => setGatewaySavedMsg(null), 3000);
   };
 
@@ -515,7 +515,7 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
             onClick={() => setActiveTab('gateways')}
             style={{ fontWeight: 700 }}
           >
-            💳 Gateways & Webhooks (Stripe / Asaas)
+            ⚡ Gateway InfinitePay (PIX & Cartão)
           </button>
           <button
             className={`btn small ${activeTab === 'cloud' ? 'primary' : ''}`}
@@ -1037,7 +1037,7 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
                         }}
                       >
                         <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                          Plano: <span style={{ color: '#f1f5f9', fontWeight: 600 }}>{sub?.planName || 'Mensal'}</span> · Gateway: <span style={{ color: '#f1f5f9', textTransform: 'uppercase' }}>{sub?.provider || 'Stripe'}</span> · Vence: <span style={{ color: '#38bdf8' }}>{sub?.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString('pt-BR') : 'Vitalício'}</span>
+                          Plano: <span style={{ color: '#f1f5f9', fontWeight: 600 }}>{sub?.planName || 'Mensal'}</span> · Gateway: <span style={{ color: '#f1f5f9', textTransform: 'uppercase' }}>{sub?.provider || 'InfinitePay'}</span> · Vence: <span style={{ color: '#38bdf8' }}>{sub?.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString('pt-BR') : 'Vitalício'}</span>
                         </div>
 
                         {/* Action Buttons */}
@@ -1144,7 +1144,7 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
           </div>
         )}
 
-        {/* TAB 2: GATEWAYS & WEBHOOKS CONFIGURATION */}
+        {/* TAB 2: GATEWAYS CONFIGURATION (INFINITEPAY) */}
         {activeTab === 'gateways' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {gatewaySavedMsg && (
@@ -1153,46 +1153,17 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
               </div>
             )}
 
-            {/* Provider Toggle */}
-            <div style={{ background: '#16181e', border: '1px solid #2e323b', padding: 14, borderRadius: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {/* Provider Info Banner */}
+            <div style={{ background: '#16181e', border: '1px solid #10b981', padding: 14, borderRadius: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                 <div>
-                  <strong style={{ fontSize: 13, color: '#f8fafc' }}>Gateway Principal de Checkout:</strong>
+                  <strong style={{ fontSize: 13, color: '#f8fafc' }}>Gateway Oficial Ativo:</strong>
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                    Selecione qual provedor de pagamento será sugerido primariamente aos usuários (Excluído Mercado Pago).
+                    O sistema utiliza exclusivamente o <strong>InfinitePay</strong> para processamento de assinaturas via PIX dinâmico (QR Code) e Cartão de Crédito.
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: gatewayConfig.activeProvider === 'infinitepay' ? '#10b981' : '#94a3b8' }}>
-                    <input
-                      type="radio"
-                      name="activeProvider"
-                      checked={gatewayConfig.activeProvider === 'infinitepay'}
-                      onChange={() => setGatewayConfig(p => ({ ...p, activeProvider: 'infinitepay' }))}
-                      style={{ accentColor: '#10b981' }}
-                    />
-                    ⚡ InfinitePay (PIX & Cartão - Oficial)
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: gatewayConfig.activeProvider === 'stripe' ? '#38bdf8' : '#94a3b8' }}>
-                    <input
-                      type="radio"
-                      name="activeProvider"
-                      checked={gatewayConfig.activeProvider === 'stripe'}
-                      onChange={() => setGatewayConfig(p => ({ ...p, activeProvider: 'stripe' }))}
-                      style={{ accentColor: '#0099ff' }}
-                    />
-                    💳 Stripe (Cartão de Crédito)
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: gatewayConfig.activeProvider === 'asaas' ? '#38bdf8' : '#94a3b8' }}>
-                    <input
-                      type="radio"
-                      name="activeProvider"
-                      checked={gatewayConfig.activeProvider === 'asaas'}
-                      onChange={() => setGatewayConfig(p => ({ ...p, activeProvider: 'asaas' }))}
-                      style={{ accentColor: '#0099ff' }}
-                    />
-                    ⚡ Asaas (Pix / Boleto / Cartão)
-                  </label>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '6px 12px', borderRadius: 6, border: '1px solid #10b981' }}>
+                  <span style={{ fontSize: 16 }}>⚡</span> InfinitePay (PIX & Cartão)
                 </div>
               </div>
             </div>
@@ -1203,7 +1174,7 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
               <div style={{ background: '#111317', border: '1px solid #10b981', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 18 }}>⚡</span>
-                  <strong style={{ fontSize: 13, color: '#34d399' }}>Configurações do InfinitePay (Gateway Principal):</strong>
+                  <strong style={{ fontSize: 13, color: '#34d399' }}>Configurações do InfinitePay:</strong>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -1255,92 +1226,8 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                {/* Stripe Card */}
-                <div style={{ background: '#111317', border: '1px solid #2e323b', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 18 }}>💳</span>
-                    <strong style={{ fontSize: 13, color: '#f8fafc' }}>Configurações do Stripe:</strong>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Stripe Publishable Key:</label>
-                    <input
-                      type="text"
-                      value={gatewayConfig.stripePublishableKey || ''}
-                      onChange={(e) => setGatewayConfig(p => ({ ...p, stripePublishableKey: e.target.value }))}
-                      placeholder="pk_live_..."
-                      style={{ width: '100%', fontSize: 12 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Stripe Checkout Mensal (R$ 49,90):</label>
-                    <input
-                      type="text"
-                      value={gatewayConfig.stripeMonthlyCheckoutUrl || ''}
-                      onChange={(e) => setGatewayConfig(p => ({ ...p, stripeMonthlyCheckoutUrl: e.target.value }))}
-                      placeholder="https://buy.stripe.com/..."
-                      style={{ width: '100%', fontSize: 12 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Stripe Checkout Anual Pro (R$ 479,00):</label>
-                    <input
-                      type="text"
-                      value={gatewayConfig.stripeAnnualCheckoutUrl || ''}
-                      onChange={(e) => setGatewayConfig(p => ({ ...p, stripeAnnualCheckoutUrl: e.target.value }))}
-                      placeholder="https://buy.stripe.com/..."
-                      style={{ width: '100%', fontSize: 12 }}
-                    />
-                  </div>
-                </div>
-
-                {/* Asaas Card */}
-                <div style={{ background: '#111317', border: '1px solid #2e323b', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 18 }}>⚡</span>
-                    <strong style={{ fontSize: 13, color: '#f8fafc' }}>Configurações do Asaas (Pix):</strong>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Asaas API Key / Token:</label>
-                    <input
-                      type="text"
-                      value={gatewayConfig.asaasApiKey || ''}
-                      onChange={(e) => setGatewayConfig(p => ({ ...p, asaasApiKey: e.target.value }))}
-                      placeholder="$aact_..."
-                      style={{ width: '100%', fontSize: 12 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Asaas Link Mensal Pix (R$ 49,90):</label>
-                    <input
-                      type="text"
-                      value={gatewayConfig.asaasMonthlyCheckoutUrl || ''}
-                      onChange={(e) => setGatewayConfig(p => ({ ...p, asaasMonthlyCheckoutUrl: e.target.value }))}
-                      placeholder="https://asaas.com/c/..."
-                      style={{ width: '100%', fontSize: 12 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Asaas Link Anual Pix (R$ 479,00):</label>
-                    <input
-                      type="text"
-                      value={gatewayConfig.asaasAnnualCheckoutUrl || ''}
-                      onChange={(e) => setGatewayConfig(p => ({ ...p, asaasAnnualCheckoutUrl: e.target.value }))}
-                      placeholder="https://asaas.com/c/..."
-                      style={{ width: '100%', fontSize: 12 }}
-                    />
-                  </div>
-                </div>
-              </div>
-
               <button type="submit" className="btn primary" style={{ alignSelf: 'flex-start' }}>
-                💾 Salvar Configurações de Checkout
+                💾 Salvar Configurações InfinitePay
               </button>
             </form>
           </div>
