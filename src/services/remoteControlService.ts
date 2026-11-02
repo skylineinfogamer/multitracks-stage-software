@@ -29,13 +29,20 @@ export interface RemoteActionPayload {
     | 'bus_volume'
     | 'bus_mute'
     | 'bus_solo'
-    | 'master_volume';
+    | 'master_volume'
+    | 'pitch_offset'
+    | 'pad_toggle'
+    | 'pad_play'
+    | 'pad_stop';
   position?: number;
   sectionId?: string;
   mode?: 'bar' | 'now';
   trackId?: string;
   bus?: string;
   value?: any;
+  delta?: number;
+  reset?: boolean;
+  key?: string;
 }
 
 export interface RemoteBroadcastState {
@@ -44,13 +51,21 @@ export interface RemoteBroadcastState {
   position: number;
   duration: number;
   autonomousClick?: boolean;
+  padKey?: string | null;
+  padPlaying?: boolean;
+  activeSectionId?: string | null;
   song: {
     id: string;
     title: string;
     artist?: string;
     key?: string;
+    originalKey?: string;
+    pitchOffset?: number;
     bpm?: number;
     duration?: number;
+    chordChart?: string;
+    transposedChords?: string;
+    diatonicChords?: string[];
     sections?: Array<{
       id: string;
       label: string;

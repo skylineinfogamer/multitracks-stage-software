@@ -29,7 +29,7 @@
     header {
       background: #12141a;
       border-bottom: 1px solid #232731;
-      padding: 12px 16px;
+      padding: 10px 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -42,7 +42,7 @@
       align-items: center;
       gap: 8px;
       font-weight: 800;
-      font-size: 14px;
+      font-size: 13.5px;
       letter-spacing: 0.5px;
       color: #fff;
     }
@@ -69,28 +69,63 @@
       border: 1px solid #ef4444;
       color: #f87171;
     }
+
+    /* TOP NAV TABS */
+    .nav-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      background: #090a0f;
+      border-bottom: 1px solid #1f232d;
+      position: sticky;
+      top: 45px;
+      z-index: 95;
+    }
+    .nav-tab {
+      background: transparent;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      color: #94a3b8;
+      font-size: 12.5px;
+      font-weight: 800;
+      padding: 11px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .nav-tab.active {
+      color: #38bdf8;
+      border-bottom-color: #0099ff;
+      background: rgba(0, 153, 255, 0.08);
+      text-shadow: 0 0 10px rgba(0, 153, 255, 0.4);
+    }
+
     .main-content {
       flex: 1;
-      padding: 14px;
+      padding: 12px 14px 24px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
-      max-width: 600px;
+      gap: 12px;
+      max-width: 650px;
       margin: 0 auto;
       width: 100%;
     }
+
+    /* NOW PLAYING CARD */
     .now-playing-card {
       background: #16181e;
       border: 1px solid #272a33;
       border-radius: 12px;
-      padding: 16px;
+      padding: 14px;
       display: flex;
       flex-direction: column;
       gap: 10px;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     }
     .song-title {
-      font-size: 20px;
+      font-size: 19px;
       font-weight: 800;
       color: #fff;
       line-height: 1.2;
@@ -99,28 +134,113 @@
       text-overflow: ellipsis;
     }
     .song-artist {
-      font-size: 13px;
+      font-size: 12.5px;
       color: #94a3b8;
       margin-top: 2px;
     }
+
+    /* KEY & PITCH STEPPER WIDGET */
+    .key-stepper-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0e1015;
+      border: 1px solid #282c38;
+      border-radius: 8px;
+      padding: 6px 10px;
+      margin-top: 2px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .stepper-label {
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #94a3b8;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .key-stepper {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-step {
+      width: 32px;
+      height: 30px;
+      border-radius: 6px;
+      border: 1px solid #333a4a;
+      background: #181c26;
+      color: #f1f5f9;
+      font-size: 13px;
+      font-weight: 800;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .btn-step:active {
+      transform: scale(0.92);
+      background: #0099ff;
+    }
+    .key-current {
+      padding: 0 10px;
+      height: 30px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(217, 119, 6, 0.12));
+      border: 1px solid #f59e0b;
+      color: #fbbf24;
+      font-size: 13px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+    }
+    .offset-tag {
+      font-size: 10px;
+      background: #f59e0b;
+      color: #000;
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-weight: 900;
+    }
+    .btn-reset {
+      width: 28px;
+      height: 30px;
+      border-radius: 6px;
+      border: 1px solid #333a4a;
+      background: #181c26;
+      color: #94a3b8;
+      font-size: 13px;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+    .btn-reset:hover {
+      color: #fff;
+    }
+
     .badges-row {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
-      margin-top: 4px;
+      align-items: center;
     }
     .meta-badge {
       background: #0d0e11;
       border: 1px solid #2e323b;
-      padding: 4px 10px;
+      padding: 3px 8px;
       border-radius: 6px;
       font-size: 11px;
       font-weight: 700;
       color: #38bdf8;
     }
+
     .progress-bar-container {
       width: 100%;
-      height: 28px;
+      height: 24px;
       display: flex;
       align-items: center;
       cursor: pointer;
@@ -148,6 +268,7 @@
       color: #94a3b8;
       margin-top: -4px;
     }
+
     /* TRANSPORT CONTROLS */
     .transport-grid {
       display: grid;
@@ -159,8 +280,8 @@
       border: 1px solid #2e323b;
       color: #fff;
       border-radius: 12px;
-      padding: 16px 8px;
-      font-size: 14px;
+      padding: 14px 8px;
+      font-size: 13.5px;
       font-weight: 700;
       display: flex;
       flex-direction: column;
@@ -186,27 +307,27 @@
       box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
     }
     .btn-touch svg {
-      width: 26px;
-      height: 26px;
+      width: 24px;
+      height: 24px;
       fill: currentColor;
     }
     .secondary-controls {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
     }
     .btn-sec {
       background: #14161c;
       border: 1px solid #282c37;
       color: #cbd5e1;
-      padding: 12px;
+      padding: 10px 6px;
       border-radius: 8px;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 700;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 5px;
       cursor: pointer;
     }
     .btn-sec.active {
@@ -214,6 +335,7 @@
       border-color: #0099ff;
       color: #38bdf8;
     }
+
     /* SECTIONS GRID */
     .section-title-row {
       display: flex;
@@ -222,13 +344,13 @@
       margin-top: 4px;
     }
     .section-title-row strong {
-      font-size: 13px;
+      font-size: 12.5px;
       color: #cbd5e1;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
     .section-title-row span {
-      font-size: 11px;
+      font-size: 10.5px;
       color: #94a3b8;
     }
     .sections-grid {
@@ -240,7 +362,7 @@
       background: #16181e;
       border: 1px solid #272a33;
       border-radius: 8px;
-      padding: 12px 6px;
+      padding: 10px 6px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -278,15 +400,16 @@
       0%, 100% { box-shadow: 0 0 14px rgba(0, 153, 255, 0.6); }
       50% { box-shadow: 0 0 24px rgba(0, 153, 255, 0.9); }
     }
-    /* MIXER DRAWER */
+
+    /* MIXER BOX */
     .mixer-box {
       background: #14161c;
       border: 1px solid #272a33;
       border-radius: 12px;
-      padding: 14px;
+      padding: 12px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
     }
     .mixer-header {
       display: flex;
@@ -296,15 +419,15 @@
     .mixer-channels-list {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
     .mixer-row {
       display: grid;
-      grid-template-columns: 80px 1fr 40px 40px;
+      grid-template-columns: 80px 1fr 38px 38px;
       gap: 8px;
       align-items: center;
       background: #0d0e11;
-      padding: 8px 10px;
+      padding: 6px 10px;
       border-radius: 8px;
       border: 1px solid #222630;
     }
@@ -338,7 +461,7 @@
       background: #16181e;
       color: #94a3b8;
       border-radius: 6px;
-      height: 30px;
+      height: 28px;
       font-size: 11px;
       font-weight: 800;
       cursor: pointer;
@@ -356,31 +479,365 @@
       border-color: #f59e0b;
       color: #000;
     }
+
+    /* ---------------------------------------------------------------- PADS TAB VIEW */
+    #view-pads {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .pad-status-card {
+      background: #14161d;
+      border: 1px solid #262a36;
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .pad-status-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .pad-status-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: #cbd5e1;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pad-indicator-badge {
+      font-size: 11px;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.25s ease;
+    }
+    .pad-indicator-badge.idle {
+      background: rgba(148, 163, 184, 0.1);
+      border: 1px solid #334155;
+      color: #94a3b8;
+    }
+    .pad-indicator-badge.playing {
+      background: rgba(0, 153, 255, 0.2);
+      border: 1px solid #0099ff;
+      color: #38bdf8;
+      box-shadow: 0 0 12px rgba(0, 153, 255, 0.35);
+      animation: padPulse 2s infinite ease-in-out;
+    }
+
+    @keyframes padPulse {
+      0% { box-shadow: 0 0 8px rgba(0, 153, 255, 0.3); }
+      50% { box-shadow: 0 0 18px rgba(0, 153, 255, 0.6); }
+      100% { box-shadow: 0 0 8px rgba(0, 153, 255, 0.3); }
+    }
+
+    .pad-actions-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+
+    .btn-pad-action {
+      background: #1e222d;
+      border: 1px solid #333a4d;
+      border-radius: 8px;
+      color: #f1f5f9;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-pad-action:active {
+      transform: scale(0.97);
+    }
+    .btn-pad-match {
+      background: linear-gradient(135deg, rgba(0, 153, 255, 0.2), rgba(14, 165, 233, 0.1));
+      border: 1px solid rgba(0, 153, 255, 0.4);
+      color: #38bdf8;
+    }
+    .btn-pad-match:hover, .btn-pad-match:active {
+      background: rgba(0, 153, 255, 0.3);
+      border-color: #0099ff;
+    }
+    .btn-pad-stop-all {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+    }
+    .btn-pad-stop-all:hover, .btn-pad-stop-all:active {
+      background: rgba(239, 68, 68, 0.25);
+      border-color: #ef4444;
+      color: #fff;
+    }
+
+    .pads-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .pad-btn {
+      background: #141720;
+      border: 1.5px solid #232733;
+      border-radius: 12px;
+      padding: 16px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      touch-action: manipulation;
+    }
+    .pad-btn:active {
+      transform: scale(0.95);
+    }
+    .pad-btn .pad-note {
+      font-size: 20px;
+      font-weight: 900;
+      color: #f8fafc;
+      letter-spacing: -0.5px;
+    }
+    .pad-btn .pad-sub {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .pad-btn.song-match {
+      border-color: rgba(245, 158, 11, 0.5);
+    }
+    .pad-btn.song-match .pad-sub {
+      color: #fbbf24;
+    }
+
+    .pad-btn.active {
+      background: linear-gradient(135deg, rgba(0, 153, 255, 0.28), rgba(6, 182, 212, 0.15));
+      border-color: #0099ff;
+      box-shadow: 0 0 16px rgba(0, 153, 255, 0.5), inset 0 0 12px rgba(0, 153, 255, 0.2);
+    }
+    .pad-btn.active .pad-note {
+      color: #38bdf8;
+      text-shadow: 0 0 12px rgba(56, 189, 248, 0.8);
+    }
+    .pad-btn.active .pad-sub {
+      color: #7dd3fc;
+    }
+    .pad-btn .pad-active-dot {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #0099ff;
+      box-shadow: 0 0 8px #0099ff;
+      display: none;
+    }
+    .pad-btn.active .pad-active-dot {
+      display: block;
+      animation: padDotPulse 1.5s infinite ease-in-out;
+    }
+    @keyframes padDotPulse {
+      0% { opacity: 0.4; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.2); }
+      100% { opacity: 0.4; transform: scale(0.9); }
+    }
+
+    /* ---------------------------------------------------------------- CIFRAS TAB VIEW */
+    #view-chords {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .chords-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #14161d;
+      border: 1px solid #262a36;
+      border-radius: 10px;
+      padding: 8px 12px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .chords-font-ctrls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-font {
+      background: #1c202a;
+      border: 1px solid #333948;
+      color: #cbd5e1;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn-font:active {
+      background: #0099ff;
+      color: #fff;
+    }
+    .diatonic-strip {
+      display: flex;
+      gap: 5px;
+      overflow-x: auto;
+      padding: 4px 0;
+      scrollbar-width: none;
+    }
+    .diatonic-strip::-webkit-scrollbar { display: none; }
+    .diatonic-pill {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 5px;
+      background: #090b10;
+      border: 1px solid #282d3b;
+      color: #38bdf8;
+      white-space: nowrap;
+    }
+    .chord-sheet-container {
+      background: #13151b;
+      border: 1px solid #232733;
+      border-radius: 12px;
+      padding: 16px;
+      user-select: text;
+      -webkit-user-select: text;
+      line-height: 1.8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 15px;
+    }
+    .chord-section-block {
+      margin-bottom: 16px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+      border-left: 3px solid transparent;
+    }
+    .chord-section-block.active-live {
+      background: rgba(0, 153, 255, 0.12);
+      border-left: 3px solid #0099ff;
+      box-shadow: 0 0 16px rgba(0, 153, 255, 0.25);
+    }
+    .chord-sec-heading {
+      font-size: 12px;
+      font-weight: 900;
+      color: #38bdf8;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .chord-line {
+      min-height: 1.6em;
+      white-space: pre-wrap;
+      color: #f1f5f9;
+      word-break: break-word;
+    }
+    .chord-badge {
+      display: inline-block;
+      font-size: 14px;
+      font-weight: 900;
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      padding: 1px 5px;
+      border-radius: 5px;
+      margin: 0 2px;
+      text-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+      user-select: none;
+    }
+    .btn-toggle-follow {
+      background: #10b981;
+      color: #000;
+      border: 0;
+      font-size: 10.5px;
+      font-weight: 800;
+      padding: 4px 9px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn-toggle-follow.off {
+      background: #2a2e3b;
+      color: #94a3b8;
+    }
   </style>
 </head>
 <body>
   <header>
     <div class="brand">
       <img src="/worship-tools-logo.jpg" alt="Logo" style="width: 24px; height: 24px; border-radius: 5px; object-fit: contain; vertical-align: middle; border: 1px solid rgba(255,255,255,0.15);" onerror="this.style.display='none'">
-      <span>WORSHIP</span> TOOLS
+      <span>WORSHIP</span> TOOLS REMOTE
     </div>
     <div id="conn-status" class="status-badge offline">
       <span>●</span> Desconectado
     </div>
   </header>
 
+  <!-- NAVIGATION TABS: CONTROLES VS PADS VS CIFRAS -->
+  <nav class="nav-tabs">
+    <button id="nav-btn-controls" class="nav-tab active" onclick="switchNavTab('controls')">
+      <span>🎛️</span> CONTROLES
+    </button>
+    <button id="nav-btn-pads" class="nav-tab" onclick="switchNavTab('pads')">
+      <span>🎹</span> PADS
+    </button>
+    <button id="nav-btn-chords" class="nav-tab" onclick="switchNavTab('chords')">
+      <span>📜</span> CIFRAS
+    </button>
+  </nav>
+
   <div class="main-content">
-    <!-- NOW PLAYING CARD -->
+    <!-- NOW PLAYING CARD (Sempre Visível no Topo) -->
     <div class="now-playing-card">
       <div>
         <div id="song-title" class="song-title">Aguardando Playback...</div>
         <div id="song-artist" class="song-artist">Abra uma música no app principal</div>
       </div>
 
+      <!-- KEY STEPPER & PITCH CONTROLS -->
+      <div class="key-stepper-box">
+        <span class="stepper-label">🎛️ TOM ATUAL:</span>
+        <div class="key-stepper">
+          <button class="btn-step" onclick="sendAction('pitch_offset', { delta: -1 })" title="Baixar 1 semitom">−1</button>
+          <div class="key-current" onclick="sendAction('pitch_offset', { reset: true })" title="Tom da música · Toque para restaurar original">
+            <span id="badge-key-text">TOM: -</span>
+            <span id="badge-key-offset" class="offset-tag" style="display:none;">0 st</span>
+          </div>
+          <button class="btn-step" onclick="sendAction('pitch_offset', { delta: 1 })" title="Subir 1 semitom">+1</button>
+          <button id="btn-pitch-reset" class="btn-reset" onclick="sendAction('pitch_offset', { reset: true })" title="Voltar ao tom original">↺</button>
+        </div>
+      </div>
+
       <div class="badges-row">
-        <span id="badge-key" class="meta-badge">Tom: -</span>
         <span id="badge-bpm" class="meta-badge">BPM: -</span>
         <span id="badge-time" class="meta-badge">4/4</span>
+        <span id="badge-section" class="meta-badge" style="display:none; background: #0099ff; color:#fff;">Intro</span>
       </div>
 
       <div class="progress-bar-container" id="progress-bar">
@@ -394,60 +851,128 @@
       </div>
     </div>
 
-    <!-- TRANSPORT CONTROLS -->
-    <div class="transport-grid">
-      <button class="btn-touch" id="btn-prev">
-        <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-        <span>Anterior</span>
-      </button>
+    <!-- VIEW 1: CONTROLES DE REPRODUÇÃO & MIXER -->
+    <div id="view-controls" style="display: flex; flex-direction: column; gap: 12px;">
+      <!-- TRANSPORT BUTTONS -->
+      <div class="transport-grid">
+        <button class="btn-touch" id="btn-prev">
+          <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+          <span>Anterior</span>
+        </button>
 
-      <button class="btn-touch btn-play-pause" id="btn-play">
-        <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-        <span id="play-label">Play</span>
-      </button>
+        <button class="btn-touch btn-play-pause" id="btn-play">
+          <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <span id="play-label">Play</span>
+        </button>
 
-      <button class="btn-touch" id="btn-stop">
-        <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
-        <span>Stop</span>
-      </button>
-    </div>
-
-    <div class="secondary-controls" style="grid-template-columns: 1fr 1fr 1fr;">
-      <button class="btn-sec" id="btn-click" title="Click Autônomo: Mantém metrônomo contínuo mesmo com VS parado">
-        <span>⏱️</span> Click
-      </button>
-      <button class="btn-sec" id="btn-fade">
-        <span>🌫️</span> Fade Stems
-      </button>
-      <button class="btn-sec" id="btn-loop">
-        <span>🔁</span> Loop Seção
-      </button>
-    </div>
-
-    <!-- LIVE SECTIONS MAP -->
-    <div>
-      <div class="section-title-row">
-        <strong>🗺️ Mapa da Música (Live ReOrder)</strong>
-        <span>1x Pular Compassso · 2x Pular Já</span>
+        <button class="btn-touch" id="btn-stop">
+          <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+          <span>Stop</span>
+        </button>
       </div>
-      <div class="sections-grid" id="sections-container" style="margin-top: 8px;">
-        <div style="font-size: 11px; color: #64748b; padding: 12px; grid-column: 1 / -1; text-align: center;">
-          Nenhuma seção carregada no momento
+
+      <div class="secondary-controls">
+        <button class="btn-sec" id="btn-click" title="Click Autônomo">
+          <span>⏱️</span> Click
+        </button>
+        <button class="btn-sec" id="btn-fade">
+          <span>🌫️</span> Fade Out
+        </button>
+        <button class="btn-sec" id="btn-loop">
+          <span>🔁</span> Loop Seção
+        </button>
+      </div>
+
+      <!-- LIVE SECTIONS MAP -->
+      <div>
+        <div class="section-title-row">
+          <strong>🗺️ Mapa da Música (Live ReOrder)</strong>
+          <span>1x Pular · 2x Imediato</span>
+        </div>
+        <div class="sections-grid" id="sections-container" style="margin-top: 8px;">
+          <div style="font-size: 11px; color: #64748b; padding: 12px; grid-column: 1 / -1; text-align: center;">
+            Nenhuma seção carregada no momento
+          </div>
+        </div>
+      </div>
+
+      <!-- QUICK MIXER -->
+      <div class="mixer-box">
+        <div class="mixer-header">
+          <strong id="mixer-heading" style="font-size: 12px; color: #38bdf8;">🎛️ Mixer de Tracks (Stems)</strong>
+          <div style="display: flex; gap: 6px;">
+            <button id="tab-tracks" class="btn-sec active" style="padding: 4px 8px; font-size: 10px; border-radius: 6px;" onclick="setMixerMode('tracks')">Tracks</button>
+            <button id="tab-buses" class="btn-sec" style="padding: 4px 8px; font-size: 10px; border-radius: 6px;" onclick="setMixerMode('buses')">Grupos</button>
+          </div>
+        </div>
+        <div class="mixer-channels-list" id="mixer-list">
+          <!-- Rendered via JS -->
         </div>
       </div>
     </div>
 
-    <!-- QUICK MIXER -->
-    <div class="mixer-box">
-      <div class="mixer-header">
-        <strong id="mixer-heading" style="font-size: 12.5px; color: #38bdf8;">🎛️ Mixer de Tracks (Stems Individuais)</strong>
-        <div style="display: flex; gap: 6px;">
-          <button id="tab-tracks" class="btn-sec active" style="padding: 4px 8px; font-size: 10.5px; border-radius: 6px;" onclick="setMixerMode('tracks')">Tracks</button>
-          <button id="tab-buses" class="btn-sec" style="padding: 4px 8px; font-size: 10.5px; border-radius: 6px;" onclick="setMixerMode('buses')">Grupos</button>
+    <!-- VIEW 2: ABA PADS AMBIENTES -->
+    <div id="view-pads">
+      <div class="pad-status-card">
+        <div class="pad-status-header">
+          <div class="pad-status-title">
+            <span>🎹</span> AMBIENT CONTINUOUS PADS
+          </div>
+          <div id="pad-status-badge" class="pad-indicator-badge idle">
+            <span>○</span> PARADO
+          </div>
+        </div>
+
+        <div class="pad-actions-row">
+          <button id="btn-pad-match-song" class="btn-pad-action btn-pad-match" onclick="toggleSongKeyPad()">
+            <span>🎯</span> <span id="label-pad-match">Tocar Tom da Música (-)</span>
+          </button>
+          <button class="btn-pad-action btn-pad-stop-all" onclick="stopCurrentPad()">
+            <span>⏹️</span> Parar Pad
+          </button>
         </div>
       </div>
-      <div class="mixer-channels-list" id="mixer-list">
+
+      <!-- Grid com os 12 Tons Musicais -->
+      <div class="pads-grid" id="pads-grid">
         <!-- Rendered via JS -->
+      </div>
+
+      <div style="font-size: 11px; color: #64748b; text-align: center; line-height: 1.5; padding: 4px 8px;">
+        💡 Toque na nota para iniciar o Pad com crossfade contínuo. Toque novamente para parar.
+      </div>
+    </div>
+
+    <!-- VIEW 3: ABA CIFRAS & LETRA (ChordPro) -->
+    <div id="view-chords">
+      <div class="chords-toolbar">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button id="btn-follow-playhead" class="btn-toggle-follow" onclick="toggleFollowPlayhead()">
+            📜 Auto-Scroll: ATIVO
+          </button>
+        </div>
+        <div class="chords-font-ctrls">
+          <span style="font-size:11px; color:#94a3b8; margin-right:4px;">Texto:</span>
+          <button class="btn-font" onclick="changeFontSize(-1)">A−</button>
+          <button class="btn-font" onclick="changeFontSize(1)">A+</button>
+        </div>
+      </div>
+
+      <!-- Campo Harmônico Diatônico do Tom Atual -->
+      <div style="background: #11141c; border: 1px solid #232733; border-radius: 8px; padding: 6px 10px;">
+        <div style="font-size: 10.5px; font-weight: 800; color: #94a3b8; margin-bottom: 4px;">
+          🎼 CAMPO HARMÔNICO (<span id="chords-current-key-name">Tom: -</span>):
+        </div>
+        <div class="diatonic-strip" id="diatonic-pills">
+          <!-- Rendered via JS -->
+        </div>
+      </div>
+
+      <!-- Folha de Cifra Formatada -->
+      <div class="chord-sheet-container" id="chords-display-sheet">
+        <div style="color: #64748b; font-size: 13px; text-align: center; padding: 24px 0;">
+          Aguardando cifra da música ativa...
+        </div>
       </div>
     </div>
   </div>
@@ -456,12 +981,18 @@
     let ws = null;
     let currentState = null;
     let lastTap = 0;
+    let activeNavTab = 'controls';
+    let followPlayhead = true;
+    let chordFontSize = parseInt(localStorage.getItem('wpp_remote_chord_font') || '15', 10);
+    let lastScrolledSectionId = null;
 
     const statusEl = document.getElementById('conn-status');
     const songTitleEl = document.getElementById('song-title');
     const songArtistEl = document.getElementById('song-artist');
-    const badgeKeyEl = document.getElementById('badge-key');
+    const badgeKeyText = document.getElementById('badge-key-text');
+    const badgeKeyOffset = document.getElementById('badge-key-offset');
     const badgeBpmEl = document.getElementById('badge-bpm');
+    const badgeSection = document.getElementById('badge-section');
     const progressFillEl = document.getElementById('progress-fill');
     const curTimeEl = document.getElementById('cur-time');
     const totalTimeEl = document.getElementById('total-time');
@@ -475,6 +1006,124 @@
     const btnClick = document.getElementById('btn-click');
     const sectionsContainer = document.getElementById('sections-container');
     const mixerList = document.getElementById('mixer-list');
+    const chordsDisplaySheet = document.getElementById('chords-display-sheet');
+    const diatonicPills = document.getElementById('diatonic-pills');
+    const chordsCurrentKeyName = document.getElementById('chords-current-key-name');
+    const btnFollowPlayhead = document.getElementById('btn-follow-playhead');
+
+    // Pads Tab Elements
+    const PAD_KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+    const btnNavControls = document.getElementById('nav-btn-controls');
+    const btnNavPads = document.getElementById('nav-btn-pads');
+    const btnNavChords = document.getElementById('nav-btn-chords');
+    const viewControls = document.getElementById('view-controls');
+    const viewPads = document.getElementById('view-pads');
+    const viewChords = document.getElementById('view-chords');
+    const padStatusBadge = document.getElementById('pad-status-badge');
+    const labelPadMatch = document.getElementById('label-pad-match');
+    const padsGrid = document.getElementById('pads-grid');
+
+    chordsDisplaySheet.style.fontSize = `${chordFontSize}px`;
+
+    function switchNavTab(tab) {
+      activeNavTab = tab;
+
+      if (btnNavControls) btnNavControls.classList.toggle('active', tab === 'controls');
+      if (btnNavPads) btnNavPads.classList.toggle('active', tab === 'pads');
+      if (btnNavChords) btnNavChords.classList.toggle('active', tab === 'chords');
+
+      if (viewControls) viewControls.style.display = tab === 'controls' ? 'flex' : 'none';
+      if (viewPads) viewPads.style.display = tab === 'pads' ? 'flex' : 'none';
+      if (viewChords) viewChords.style.display = tab === 'chords' ? 'flex' : 'none';
+
+      if (tab === 'chords' && currentState) {
+        renderChordsTab(currentState);
+      } else if (tab === 'pads') {
+        renderPadsView(currentState);
+      }
+    }
+
+    function renderPadsView(data) {
+      if (!padsGrid) return;
+      const activePad = data?.padKey || null;
+      const songKey = data?.song?.key || null;
+
+      // Update Header Status Badge
+      if (padStatusBadge) {
+        if (activePad) {
+          padStatusBadge.className = 'pad-indicator-badge playing';
+          padStatusBadge.innerHTML = `<span>●</span> ATIVO: ${activePad}`;
+        } else {
+          padStatusBadge.className = 'pad-indicator-badge idle';
+          padStatusBadge.innerHTML = '<span>○</span> PARADO';
+        }
+      }
+
+      // Update Match Button Label
+      if (labelPadMatch) {
+        if (songKey) {
+          labelPadMatch.textContent = `Tocar Tom da Música (${songKey})`;
+        } else {
+          labelPadMatch.textContent = 'Tocar Tom da Música (-)';
+        }
+      }
+
+      // Render 12 Pad Buttons
+      padsGrid.innerHTML = PAD_KEYS.map((key) => {
+        const isActive = activePad === key;
+        const isSongMatch = songKey === key;
+
+        let subLabel = 'PAD';
+        if (isSongMatch) {
+          subLabel = 'TOM MÚSICA';
+        }
+
+        return `
+          <button class="pad-btn ${isActive ? 'active' : ''} ${isSongMatch ? 'song-match' : ''}" 
+                  onclick="togglePadKey('${key}')">
+            <span class="pad-active-dot"></span>
+            <span class="pad-note">${key}</span>
+            <span class="pad-sub">${subLabel}</span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function togglePadKey(key) {
+      sendAction('pad_toggle', { key });
+    }
+
+    function toggleSongKeyPad() {
+      if (currentState && currentState.song && currentState.song.key) {
+        sendAction('pad_toggle', { key: currentState.song.key });
+      } else {
+        sendAction('pad_toggle', {});
+      }
+    }
+
+    function stopCurrentPad() {
+      sendAction('pad_stop');
+    }
+
+    // Initialize pads grid on load
+    renderPadsView(null);
+
+    function toggleFollowPlayhead() {
+      followPlayhead = !followPlayhead;
+      if (followPlayhead) {
+        btnFollowPlayhead.className = 'btn-toggle-follow';
+        btnFollowPlayhead.textContent = '📜 Auto-Scroll: ATIVO';
+      } else {
+        btnFollowPlayhead.className = 'btn-toggle-follow off';
+        btnFollowPlayhead.textContent = '📜 Auto-Scroll: PAUSADO';
+      }
+    }
+
+    function changeFontSize(delta) {
+      chordFontSize = Math.max(11, Math.min(26, chordFontSize + delta));
+      chordsDisplaySheet.style.fontSize = `${chordFontSize}px`;
+      localStorage.setItem('wpp_remote_chord_font', chordFontSize.toString());
+    }
 
     function formatTime(s) {
       if (!isFinite(s) || s < 0) return '0:00';
@@ -546,17 +1195,30 @@
         }
       }
 
-      // Update Song Info
+      // Update Song Info & Key
       if (data.song) {
         songTitleEl.textContent = data.song.title || 'Música Sem Nome';
         songArtistEl.textContent = data.song.artist || 'Artista';
-        badgeKeyEl.textContent = `Tom: ${data.song.key || 'C'}`;
         badgeBpmEl.textContent = `${Math.round(data.song.bpm || 120)} BPM`;
+
+        const curKey = data.song.key || 'C';
+        badgeKeyText.textContent = `TOM: ${curKey}`;
+        chordsCurrentKeyName.textContent = `Tom: ${curKey}`;
+
+        const pitchOffset = data.song.pitchOffset || 0;
+        if (pitchOffset !== 0) {
+          badgeKeyOffset.style.display = 'inline-block';
+          badgeKeyOffset.textContent = pitchOffset > 0 ? `+${pitchOffset} st` : `${pitchOffset} st`;
+        } else {
+          badgeKeyOffset.style.display = 'none';
+        }
       } else {
         songTitleEl.textContent = 'Nenhuma música carregada';
         songArtistEl.textContent = 'Selecione uma música no app principal';
-        badgeKeyEl.textContent = 'Tom: -';
+        badgeKeyText.textContent = 'TOM: -';
+        badgeKeyOffset.style.display = 'none';
         badgeBpmEl.textContent = 'BPM: -';
+        chordsCurrentKeyName.textContent = 'Tom: -';
       }
 
       // Update Progress
@@ -572,24 +1234,43 @@
 
       // Render Mixer
       renderMixer(data.buses || [], data.tracks || []);
+
+      // Render Pads (Active Pad & Song Key match)
+      renderPadsView(data);
+
+      // If on chords tab, update chords live
+      if (activeNavTab === 'chords') {
+        renderChordsTab(data);
+      }
     }
 
     function renderSections(sections, currentPos, queuedId) {
       if (!sections || sections.length === 0) {
         sectionsContainer.innerHTML = '<div style="font-size: 11px; color: #64748b; padding: 12px; grid-column: 1 / -1; text-align: center;">Nenhuma seção cadastrada</div>';
+        badgeSection.style.display = 'none';
         return;
       }
 
-      let activeSectionId = null;
+      let activeSection = null;
       for (const s of sections) {
         if (currentPos >= s.start && currentPos < s.end) {
-          activeSectionId = s.id;
+          activeSection = s;
           break;
         }
       }
 
+      if (activeSection) {
+        badgeSection.style.display = 'inline-block';
+        badgeSection.textContent = activeSection.label;
+        if (activeSection.color) {
+          badgeSection.style.background = activeSection.color;
+        }
+      } else {
+        badgeSection.style.display = 'none';
+      }
+
       sectionsContainer.innerHTML = sections.map((s) => {
-        const isActive = s.id === activeSectionId;
+        const isActive = activeSection && s.id === activeSection.id;
         const isQueued = s.id === queuedId;
         const borderStyle = s.color ? `border-top: 3px solid ${s.color};` : '';
         return `
@@ -607,15 +1288,124 @@
       const now = Date.now();
       const DOUBLE_TAP_DELAY = 300;
       if (now - lastTap < DOUBLE_TAP_DELAY) {
-        // Double tap: immediate jump
         sendAction('jump', { sectionId, mode: 'now' });
       } else {
-        // Single tap: sync jump on bar boundary
         sendAction('jump', { sectionId, mode: 'bar' });
       }
       lastTap = now;
     }
 
+    // ---------------------------------------------------------------- CIFRAS TAB RENDERING
+    function renderChordsTab(data) {
+      if (!data || !data.song) {
+        chordsDisplaySheet.innerHTML = '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 24px 0;">Nenhuma música ativa para exibir cifra.</div>';
+        diatonicPills.innerHTML = '';
+        return;
+      }
+
+      // Diatonic Pills
+      const diatonics = data.song.diatonicChords || [];
+      if (diatonics.length > 0) {
+        diatonicPills.innerHTML = diatonics.map((c) => `<span class="diatonic-pill">${c}</span>`).join('');
+      } else {
+        diatonicPills.innerHTML = '<span class="diatonic-pill">Tom: ' + (data.song.key || 'G') + '</span>';
+      }
+
+      // Chord chart content: prefer transposedChords sent directly from audio engine
+      const chordText = data.song.transposedChords || data.song.chordChart || '';
+      if (!chordText.trim()) {
+        chordsDisplaySheet.innerHTML = `
+          <div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 24px 12px; line-height: 1.6;">
+            <p><strong>Nenhuma cifra cadastrada para esta música.</strong></p>
+            <p style="font-size:11.5px; color:#64748b; margin-top:6px;">Abra a música no app principal e clique em "CIFRAS" &gt; "Gerar Cifra IA" para obter os acordes sincronizados!</p>
+          </div>
+        `;
+        return;
+      }
+
+      const activeSecId = data.activeSectionId;
+      const lines = chordText.split('\n');
+
+      let currentBlockSecName = '';
+      let html = '';
+      let inBlock = false;
+
+      lines.forEach((line, index) => {
+        const trimmed = line.trim();
+        // Check section header like [INTRO], [VERSO 1], [REFRÃO]
+        const isHeader = (trimmed.startsWith('[') && trimmed.endsWith(']')) || trimmed.startsWith('#');
+
+        if (isHeader) {
+          if (inBlock) {
+            html += '</div>'; // close previous block
+          }
+          const cleanSecName = trimmed.replace(/^[#{}\[\]\s]+|[#{}\[\]\s]+$/g, '');
+          currentBlockSecName = cleanSecName;
+          inBlock = true;
+
+          // Find if this section matches activeSection
+          let isActiveSec = false;
+          if (data.song.sections) {
+            const matchSec = data.song.sections.find((s) => s.label.toLowerCase() === cleanSecName.toLowerCase());
+            if (matchSec && matchSec.id === activeSecId) {
+              isActiveSec = true;
+            }
+          }
+
+          html += `
+            <div class="chord-section-block ${isActiveSec ? 'active-live' : ''}" 
+                 id="sec-chord-${cleanSecName.replace(/\s+/g, '_')}"
+                 ondblclick="handleSectionHeaderJump('${cleanSecName}')">
+              <div class="chord-sec-heading">
+                <span>📍</span> ${cleanSecName}
+              </div>
+          `;
+        } else {
+          if (!inBlock) {
+            html += '<div class="chord-section-block">';
+            inBlock = true;
+          }
+
+          // Parse chords inside brackets [G], [D/F#], etc.
+          const parts = line.split(/(\[[^\]]+\])/g);
+          const lineHtml = parts.map((part) => {
+            if (part.startsWith('[') && part.endsWith(']')) {
+              const chord = part.slice(1, -1);
+              return `<span class="chord-badge">${chord}</span>`;
+            }
+            // Escape html
+            return part.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          }).join('');
+
+          html += `<div class="chord-line">${lineHtml || '&nbsp;'}</div>`;
+        }
+      });
+
+      if (inBlock) {
+        html += '</div>';
+      }
+
+      chordsDisplaySheet.innerHTML = html;
+
+      // Auto-scroll to active section if enabled
+      if (followPlayhead && activeSecId && activeSecId !== lastScrolledSectionId) {
+        lastScrolledSectionId = activeSecId;
+        const activeBlock = chordsDisplaySheet.querySelector('.chord-section-block.active-live');
+        if (activeBlock) {
+          activeBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+
+    function handleSectionHeaderJump(secName) {
+      if (!currentState || !currentState.song || !currentState.song.sections) return;
+      const target = currentState.song.sections.find((s) => s.label.toLowerCase() === secName.toLowerCase());
+      if (target) {
+        sendAction('jump', { sectionId: target.id, mode: 'bar' });
+      }
+    }
+
+    // MIXER
     let mixerMode = 'tracks';
 
     function setMixerMode(mode) {

@@ -38,9 +38,15 @@ export async function extractMultitrackZipBytesNative(
  * Reads an extracted audio file from disk into an ArrayBuffer via native Rust.
  */
 export async function readAudioFileNative(filePath: string): Promise<ArrayBuffer> {
-  const bytes = await invoke<number[]>('read_audio_file', { filePath });
-  const u8 = new Uint8Array(bytes);
-  return u8.buffer as ArrayBuffer;
+  const res: any = await invoke('read_audio_file', { filePath });
+  if (res instanceof ArrayBuffer) return res;
+  if (ArrayBuffer.isView(res)) {
+    return (res.buffer as ArrayBuffer).slice(res.byteOffset, res.byteOffset + res.byteLength);
+  }
+  if (Array.isArray(res)) {
+    return new Uint8Array(res).buffer;
+  }
+  return res as ArrayBuffer;
 }
 
 /**
@@ -48,23 +54,31 @@ export async function readAudioFileNative(filePath: string): Promise<ArrayBuffer
  * and returns ready-to-use audio candidates with their data and names.
  */
 export async function processZipFile(
-  file: File | { name: string; path?: string; data?: ArrayBuffer },
+  file: File | { name: string; path?: string; data?: ArrayBuffer; size?: number },
   onProgress?: (msg: string) => void,
 ): Promise<ExtractedAudioCandidate[]> {
-  onProgress?.('A descompactar ficheiros de áudio…');
+  onProgress?.('A verificar integridade do ficheiro ZIP…');
+
+  // 1. Verificação prévia de Hidratação / Tamanho Local (Placeholders da Nuvem)
+  if (file instanceof File && file.size === 0) {
+    throw new Error(
+      `O arquivo "${file.name}" possui 0 bytes. Trata-se de um placeholder sob demanda da nuvem (Google Drive / OneDrive). Clique com o botão direito no arquivo no Windows Explorer e selecione "Sempre manter neste dispositivo" antes de importar.`
+    );
+  }
 
   const filePath = (file as any).path as string | undefined;
 
-  // 1. If in Tauri and we have a local file path, use zero-copy native extraction
+  // 2. Extração nativa em Rust (Zero-Copy, Streaming em Chunks de 64KB, Thread Assíncrona Tokio)
   if (isTauri() && filePath) {
     try {
+      onProgress?.('A descompactar pacote multitrack em stream…');
       const audioPaths = await extractMultitrackZipNative(filePath);
       const candidates: ExtractedAudioCandidate[] = [];
 
       for (let i = 0; i < audioPaths.length; i++) {
         const p = audioPaths[i];
         const baseName = p.split(/[/\\]/).pop() || `track_${i}.wav`;
-        onProgress?.(`A descompactar ficheiros de áudio (${i + 1}/${audioPaths.length}): ${baseName}…`);
+        onProgress?.(`A carregar faixas de áudio (${i + 1}/${audioPaths.length}): ${baseName}…`);
         try {
           const ab = await readAudioFileNative(p);
           candidates.push({
@@ -77,23 +91,38 @@ export async function processZipFile(
         }
       }
 
-      return candidates;
-    } catch (rustErr) {
-      console.warn('[ZipExtractor] Erro na extração nativa por path, tentando fallback:', rustErr);
+      if (candidates.length > 0) {
+        return candidates;
+      }
+    } catch (rustErr: any) {
+      console.warn('[ZipExtractor] Erro na extração nativa por path:', rustErr);
+      const errMsg = typeof rustErr === 'string' ? rustErr : rustErr?.message || String(rustErr);
+      if (
+        errMsg.includes('placeholder') ||
+        errMsg.includes('0 bytes') ||
+        errMsg.includes('Google Drive') ||
+        errMsg.includes('não é um arquivo ZIP válido')
+      ) {
+        throw new Error(errMsg);
+      }
     }
   }
 
-  // 2. If in Tauri but file is in memory (or no direct path), use native bytes extraction
+  // 3. Se estiver no Tauri mas sem path direto (ex: buffer em memória)
   if (isTauri()) {
     try {
       const arrayBuf = 'data' in file && file.data ? file.data : await (file as File).arrayBuffer();
+      if (arrayBuf.byteLength === 0) {
+        throw new Error(`O arquivo "${file.name}" está vazio (0 bytes).`);
+      }
+      onProgress?.('A descompactar dados multitrack em stream nativo…');
       const audioPaths = await extractMultitrackZipBytesNative(arrayBuf, file.name);
       const candidates: ExtractedAudioCandidate[] = [];
 
       for (let i = 0; i < audioPaths.length; i++) {
         const p = audioPaths[i];
         const baseName = p.split(/[/\\]/).pop() || `track_${i}.wav`;
-        onProgress?.(`A descompactar ficheiros de áudio (${i + 1}/${audioPaths.length}): ${baseName}…`);
+        onProgress?.(`A carregar faixas de áudio (${i + 1}/${audioPaths.length}): ${baseName}…`);
         try {
           const ab = await readAudioFileNative(p);
           candidates.push({
@@ -106,13 +135,16 @@ export async function processZipFile(
         }
       }
 
-      return candidates;
-    } catch (rustErr) {
-      console.warn('[ZipExtractor] Erro na extração nativa por bytes, tentando fallback JSZip:', rustErr);
+      if (candidates.length > 0) {
+        return candidates;
+      }
+    } catch (rustErr: any) {
+      console.warn('[ZipExtractor] Erro na extração nativa por bytes:', rustErr);
     }
   }
 
-  // 3. Fallback: JSZip (for browser environment or if native call fails)
+  // 4. Fallback JSZip (para navegador web ou fallback de contingência)
+  onProgress?.('A descompactar arquivo (fallback JSZip)…');
   const arrayBuf = 'data' in file && file.data ? file.data : await (file as File).arrayBuffer();
   const zip = await JSZip.loadAsync(arrayBuf);
   const candidates: ExtractedAudioCandidate[] = [];
@@ -121,13 +153,19 @@ export async function processZipFile(
   for (const en of entries) {
     const ze = zip.files[en];
     if (ze.dir) continue;
-    const bName = en.split('/').pop() || en;
-    if (bName.startsWith('.') || en.includes('__MACOSX')) continue;
-    if (/\.(wav|wave|mp3|m4a|aac|ogg|flac|aif|aiff)$/i.test(bName)) {
+    const bName = (en.split(/[/\\]/).pop() || en).trim();
+    if (bName.startsWith('._') || bName === '.DS_Store' || en.includes('__MACOSX')) continue;
+    if (/\.(wav|wave|mp3|m4a|mp4|aac|ogg|flac|aif|aiff|wma|alac|caf|opus|webm|weba)$/i.test(bName)) {
       onProgress?.(`A extrair faixa: ${bName}…`);
       const buf = await ze.async('arraybuffer');
-      candidates.push({ name: bName, data: buf });
+      if (buf.byteLength > 100) {
+        candidates.push({ name: bName, data: buf });
+      }
     }
+  }
+
+  if (candidates.length === 0) {
+    throw new Error('Nenhum arquivo de áudio compatível (.wav, .mp3, etc.) foi encontrado dentro do pacote ZIP.');
   }
 
   return candidates;

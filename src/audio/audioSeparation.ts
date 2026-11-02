@@ -8,20 +8,23 @@ export function isCombinedClickGuide(name: string): boolean {
   if (!name) return false;
   const normalized = name.replace(/[_\-.\s+&/\\()]+/g, ' ').toLowerCase();
 
-  // Explicit combined patterns like "click & guia", "click e guia", "click guide", "click-guide", etc.
+  // Se o arquivo contiver explicitamente nome de instrumento musical, NUNCA é um arquivo combinado de click & guia!
+  // Isso previne que faixas reais (ex: "Guitarra Guia", "Violão Guia", "Voz Guia", "Teclado Guia", "Pad Guia")
+  // sejam destruídas ou canibalizadas pelo sistema.
   if (
-    /\b(click|clique|metr[oô]nomo)\b/i.test(normalized) &&
-    /\b(guide|guia|cues?|count|contagem|voz)\b/i.test(normalized)
+    /\b(guitar|gtr|guitarra|viol[aã]o|bass|baixo|piano|teclado|key|synth|pad|drum|bateria|perc|vox|vocal|lead|solo|organ|cordas|brass)\b/i.test(
+      normalized,
+    )
   ) {
-    return true;
+    return false;
   }
-  if (
-    normalized.includes('click') &&
-    (normalized.includes('guide') || normalized.includes('guia') || normalized.includes('cue'))
-  ) {
-    return true;
-  }
-  return false;
+
+  // Padrões estritos e inequívocos de arquivo combinado de Click e Guia
+  // Ex: "Click & Guia", "Click e Guia", "Click Guide", "Click-Guide", "Click+Cue", "Click Cues"
+  const hasClickWord = /\b(click|clique|metr[oô]nomo)\b/i.test(normalized);
+  const hasGuideWord = /\b(guide|guia|cues?|count|contagem)\b/i.test(normalized);
+
+  return hasClickWord && hasGuideWord;
 }
 
 /**

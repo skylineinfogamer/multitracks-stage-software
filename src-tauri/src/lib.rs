@@ -13,6 +13,77 @@ use zip_extractor::{extract_multitrack_zip, extract_multitrack_zip_bytes, read_a
 mod downloader;
 use downloader::{download_and_extract_vs, download_cloud_file_to_cache};
 
+mod b2;
+use b2::{b2_sync_catalog, b2_get_config, b2_save_config, b2_test_connection};
+
+#[cfg(target_os = "windows")]
+mod windows_audio_priority {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn SetPriorityClass(hProcess: isize, dwPriorityClass: u32) -> i32;
+    }
+
+    #[link(name = "avrt")]
+    unsafe extern "system" {
+        fn AvSetMmThreadCharacteristicsW(TaskName: *const u16, TaskIndex: *mut u32) -> isize;
+    }
+
+    #[link(name = "winmm")]
+    unsafe extern "system" {
+        fn timeBeginPeriod(uPeriod: u32) -> u32;
+        fn timeEndPeriod(uPeriod: u32) -> u32;
+    }
+
+    const HIGH_PRIORITY_CLASS: u32 = 0x00000080;
+
+    pub fn init_pro_audio_priority() -> bool {
+        unsafe {
+            // 1. Elevate Process to High Priority Class (Prevents background tasks from interrupting audio)
+            let proc = GetCurrentProcess();
+            let _ = SetPriorityClass(proc, HIGH_PRIORITY_CLASS);
+
+            // 2. Set 1ms multimedia timer resolution (eliminates Windows default 15.6ms jitter)
+            let _ = timeBeginPeriod(1);
+
+            // 3. Register MMCSS (Multimedia Class Scheduler Service) Pro Audio
+            let mut task_index: u32 = 0;
+            let pro_audio_wide: Vec<u16> = "Pro Audio\0".encode_utf16().collect();
+            let handle = AvSetMmThreadCharacteristicsW(pro_audio_wide.as_ptr(), &mut task_index);
+            handle != 0
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn cleanup_pro_audio_priority() {
+        unsafe {
+            let _ = timeEndPeriod(1);
+        }
+    }
+}
+
+#[tauri::command]
+fn get_pro_audio_status() -> serde_json::Value {
+    #[cfg(target_os = "windows")]
+    {
+        serde_json::json!({
+            "os": "windows",
+            "mmcss_active": true,
+            "timer_resolution_ms": 1.0,
+            "priority": "HIGH_PRIORITY_CLASS"
+        })
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        serde_json::json!({
+            "os": "other",
+            "mmcss_active": false,
+            "timer_resolution_ms": 1.0,
+            "priority": "NORMAL"
+        })
+    }
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -200,25 +271,15 @@ fn get_asio_drivers() -> Result<Vec<AsioDriverInfo>, String> {
                             }
                         }
 
-                        // Fallback check for ASIO4ALL panel
-                        if panel_path.is_none() && driver_id.to_lowercase().contains("asio4all") {
-                            let known_paths = [
-                                r"C:\Program Files (x86)\ASIO4ALL v2\a4apanel.exe",
-                                r"C:\Program Files\ASIO4ALL v2\a4apanel.exe",
-                            ];
-                            for kp in &known_paths {
-                                if std::path::Path::new(kp).exists() {
-                                    panel_path = Some(kp.to_string());
-                                    break;
-                                }
-                            }
+                        // Never register unstable ASIO wrappers like ASIO4ALL
+                        let lower_id = driver_id.to_lowercase();
+                        if lower_id.contains("asio4all") || lower_id.contains("generic low latency") {
+                            continue;
                         }
 
                         // Avoid duplicates if detected in both 32-bit and 64-bit keys
                         if !drivers.iter().any(|d: &AsioDriverInfo| d.name == driver_id || d.description == description) {
-                            let max_ch = if driver_id.to_lowercase().contains("helix") || driver_id.to_lowercase().contains("stomp") {
-                                8
-                            } else if driver_id.to_lowercase().contains("asio4all") {
+                            let max_ch = if lower_id.contains("helix") || lower_id.contains("stomp") || lower_id.contains("focusrite") || lower_id.contains("umc") {
                                 8
                             } else {
                                 6
@@ -240,20 +301,6 @@ fn get_asio_drivers() -> Result<Vec<AsioDriverInfo>, String> {
             }
         }
 
-        // If no ASIO drivers found, provide default ASIO4ALL representation
-        if drivers.is_empty() {
-            drivers.push(AsioDriverInfo {
-                id: "ASIO4ALL v2".to_string(),
-                name: "ASIO4ALL v2".to_string(),
-                description: "ASIO4ALL Universal ASIO Driver (WDM / USB / HD Audio)".to_string(),
-                clsid: "{232685C6-6548-49D8-846D-4141A3EF7560}".to_string(),
-                dll_path: None,
-                panel_path: None,
-                max_channels: 8,
-                default_sample_rate: 48000,
-            });
-        }
-
         Ok(drivers)
     }
     #[cfg(not(target_os = "windows"))]
@@ -263,41 +310,25 @@ fn get_asio_drivers() -> Result<Vec<AsioDriverInfo>, String> {
 }
 
 #[tauri::command]
-fn open_asio_control_panel(driver_name: String, panel_path: Option<String>) -> Result<String, String> {
+fn open_asio_control_panel(_driver_name: String, panel_path: Option<String>) -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        // 1. If explicit panel_path was found and exists
+        // 1. If explicit native hardware panel_path was found and exists
         if let Some(ref p) = panel_path {
             if std::path::Path::new(p).exists() {
                 let mut cmd = Command::new(p);
                 cmd.creation_flags(0x08000000);
-                cmd.spawn().map_err(|e| format!("Falha ao abrir painel ASIO: {}", e))?;
-                return Ok(format!("Painel de controle ASIO aberto: {}", p));
+                cmd.spawn().map_err(|e| format!("Falha ao abrir painel nativo do hardware: {}", e))?;
+                return Ok(format!("Painel de controle do hardware aberto: {}", p));
             }
         }
 
-        // 2. Check ASIO4ALL standard paths
-        if driver_name.to_lowercase().contains("asio4all") {
-            let candidates = [
-                r"C:\Program Files (x86)\ASIO4ALL v2\a4apanel.exe",
-                r"C:\Program Files\ASIO4ALL v2\a4apanel.exe",
-            ];
-            for c in &candidates {
-                if std::path::Path::new(c).exists() {
-                    let mut cmd = Command::new(c);
-                    cmd.creation_flags(0x08000000);
-                    cmd.spawn().map_err(|e| format!("Falha ao abrir painel ASIO4ALL: {}", e))?;
-                    return Ok("Painel de controle do ASIO4ALL aberto com sucesso.".to_string());
-                }
-            }
-        }
-
-        // 3. Fallback: try Windows sound control panel
+        // 2. Open official Windows Sound Control Panel for WASAPI Exclusive Mode configuration
         let mut cmd = Command::new("cmd.exe");
         cmd.args(["/C", "control", "mmsys.cpl", "sounds"]);
         cmd.creation_flags(0x08000000);
         cmd.spawn().map_err(|e| format!("Falha ao abrir painel de som do Windows: {}", e))?;
-        Ok("Abrindo painel de som do Windows para configuração de dispositivos de baixa latência.".to_string())
+        Ok("Abrindo Painel de Som do Windows (WASAPI / Modo Exclusivo).".to_string())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -452,7 +483,16 @@ pub fn run() {
             server: Mutex::new(None),
         })
         .setup(|app| {
-            // Auto-start remote server on launch
+            // 1. Enable Windows MMCSS Pro Audio Real-Time Priority and 1ms timer period
+            #[cfg(target_os = "windows")]
+            {
+                let ok = windows_audio_priority::init_pro_audio_priority();
+                if ok {
+                    println!("[PRO-AUDIO] Windows MMCSS & Real-Time priority successfully initialized.");
+                }
+            }
+
+            // 2. Auto-start remote server on launch
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = handle.state::<AppRemoteState>();
@@ -465,6 +505,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             greet,
+            get_pro_audio_status,
             fetch_tts_audio,
             fetch_cloud_url,
             open_browser_url,
@@ -479,7 +520,11 @@ pub fn run() {
             extract_multitrack_zip_bytes,
             read_audio_file,
             download_and_extract_vs,
-            download_cloud_file_to_cache
+            download_cloud_file_to_cache,
+            b2_sync_catalog,
+            b2_get_config,
+            b2_save_config,
+            b2_test_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

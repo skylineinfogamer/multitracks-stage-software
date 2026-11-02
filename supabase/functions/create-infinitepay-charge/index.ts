@@ -39,19 +39,50 @@ serve(async (req: Request) => {
       );
     }
 
-    // 2. Tabela de Preços e Planos (Valores estritamente em Centavos)
-    const planPrices: Record<string, { name: string; amountCents: number }> = {
-      monthly: { name: "Plano Worship Mensal", amountCents: 4990 }, // R$ 49,90 -> 4990 centavos
-      annual: { name: "Plano Worship Pro Anual", amountCents: 47900 }, // R$ 479,00 -> 47900 centavos
-      church_vip: { name: "Plano Igreja Louvor VIP", amountCents: 99000 }, // R$ 990,00 -> 99000 centavos
-    };
-
-    const plan = planPrices[planId] || planPrices.monthly;
-    const amountCents = plan.amountCents;
-
-    // 3. Obter Variáveis de Ambiente
+    // 2. Obter Variáveis de Ambiente
     const infinitePayApiKey = Deno.env.get("INFINITEPAY_API_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "https://ljrxnooemnfssqdlorgt.supabase.co";
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || "";
+
+    // 3. Buscar Plano Dinamicamente na Tabela 'plans' do Supabase
+    let plan = { name: "Plano Worship Mensal", amountCents: 4990 };
+
+    if (supabaseKey) {
+      try {
+        const planQueryUrl = `${supabaseUrl}/rest/v1/plans?id=eq.${encodeURIComponent(planId)}&select=id,name,price,is_active`;
+        const planResp = await fetch(planQueryUrl, {
+          headers: {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+          },
+        });
+        if (planResp.ok) {
+          const plansList = await planResp.json();
+          if (Array.isArray(plansList) && plansList.length > 0) {
+            const dbPlan = plansList[0];
+            plan = {
+              name: dbPlan.name,
+              amountCents: Number(dbPlan.price) || 4990,
+            };
+            console.log(`[create-infinitepay-charge] Plano dinâmico obtido do Supabase: "${plan.name}" (${plan.amountCents} centavos)`);
+          }
+        }
+      } catch (dbErr) {
+        console.warn("[create-infinitepay-charge] Falha ao consultar tabela plans, usando tabela padrão:", dbErr);
+      }
+    }
+
+    // Fallback estático caso a tabela ainda não possua o plano ou ocorra falha de rede
+    if (!plan.amountCents) {
+      const planPrices: Record<string, { name: string; amountCents: number }> = {
+        monthly: { name: "Plano Worship Mensal", amountCents: 4990 }, // R$ 49,90 -> 4990 centavos
+        annual: { name: "Plano Worship Pro Anual", amountCents: 47900 }, // R$ 479,00 -> 47900 centavos
+        church_vip: { name: "Plano Igreja Louvor VIP", amountCents: 99000 }, // R$ 990,00 -> 99000 centavos
+      };
+      plan = planPrices[planId] || planPrices.monthly;
+    }
+
+    const amountCents = plan.amountCents;
 
     if (!infinitePayApiKey) {
       console.error("[create-infinitepay-charge] INFINITEPAY_API_KEY não configurada.");

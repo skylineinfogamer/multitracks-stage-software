@@ -4,7 +4,7 @@ import { authService } from '../saas/AuthService';
 import { masterCatalogService } from '../saas/MasterCatalogService';
 import { supabase } from '../saas/supabaseClient';
 import { openExternalUrl } from '../utils/openUrl';
-import type { SubscriptionPlanId, User } from '../saas/types';
+import type { PlanDetails, SubscriptionPlanId, User } from '../saas/types';
 
 interface Props {
   user: User;
@@ -157,7 +157,24 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
   const isPending = user.status === 'pending';
   const isRejected = user.status === 'rejected';
 
-  const plans = subscriptionService.getAllPlans();
+  const [plans, setPlans] = useState<PlanDetails[]>(() => subscriptionService.getAllPlans());
+
+  useEffect(() => {
+    subscriptionService.fetchPlans().then((loaded) => {
+      if (loaded && loaded.length > 0) {
+        setPlans(loaded);
+        setSelectedPlan((prev) => {
+          if (!loaded.some((p) => p.id === prev)) {
+            return (loaded[0].id as SubscriptionPlanId);
+          }
+          return prev;
+        });
+      }
+    }).catch((err) => {
+      console.warn('[SubscriptionGuardModal] Usando planos locais por falha no fetch:', err);
+    });
+  }, []);
+
   const adminWhatsApp = masterCatalogService.getAdminWhatsAppNumber();
 
   const handleOpenWhatsApp = () => {
@@ -177,22 +194,13 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
       const refreshed = await authService.refreshCurrentUser();
       if (refreshed && refreshed.status === 'active') {
         setPaymentConfirmed(true);
-        setFeedback('🎉 Pagamento identificado! Seu acesso foi liberado com sucesso.');
+        setFeedback('✅ Pagamento identificado! Seu acesso foi liberado com sucesso.');
         setTimeout(() => {
           onUnlocked?.();
         }, 1200);
         return;
       }
-      const res = subscriptionService.checkUserAccess(user);
-      if (res.allowed) {
-        setPaymentConfirmed(true);
-        setFeedback('🎉 Pagamento identificado! Seu acesso foi liberado.');
-        setTimeout(() => {
-          onUnlocked?.();
-        }, 1200);
-      } else {
-        setFeedback('Ainda não identificamos a confirmação bancária. Se acabou de pagar via Pix ou Cartão, aguarde alguns instantes para a compensação e verifique novamente.');
-      }
+      setFeedback('Ainda não identificamos a confirmação bancária. Seu cadastro continua com status Pendente no sistema. Se acabou de pagar via Pix ou Cartão, aguarde alguns instantes para a compensação e verifique novamente.');
     } catch {
       setFeedback('Erro ao consultar status. Verifique sua conexão.');
     } finally {
@@ -595,7 +603,7 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
                     >
                       Escolha seu Plano de Renovação:
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                       {plans.map((p) => {
                         const isSelected = selectedPlan === p.id;
                         return (
@@ -642,7 +650,7 @@ export function SubscriptionGuardModal({ user, reason, onLogout, onUnlocked }: P
                             <div style={{ fontSize: 20, fontWeight: 800, color: '#fff', marginTop: 6 }}>
                               R$ {p.priceBrl.toFixed(2).replace('.', ',')}
                               <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>
-                                /{p.interval === 'annual' ? 'ano' : 'mês'}
+                                /{p.interval === 'annual' || p.interval === 'year' ? 'ano' : p.interval === 'lifetime' ? 'vitalício' : 'mês'}
                               </span>
                             </div>
                             <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{p.description}</div>

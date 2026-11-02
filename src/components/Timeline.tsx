@@ -15,6 +15,7 @@ interface Props {
   onQueueSection?: (index: number) => void;
   onToggleLoopOnce?: () => void;
   onToggleLoopInfinite?: () => void;
+  onOpenWaveform?: () => void;
 }
 
 const LABEL_H = 26;
@@ -33,6 +34,7 @@ export function Timeline({
   onQueueSection,
   onToggleLoopOnce,
   onToggleLoopInfinite,
+  onOpenWaveform,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const bgRef = useRef<HTMLCanvasElement>(null);
@@ -290,6 +292,16 @@ export function Timeline({
         >
           ∞ Loop
         </button>
+        {onOpenWaveform && (
+          <button
+            className="tl-loop-btn"
+            onClick={onOpenWaveform}
+            title="Abrir Editor de Seções, Marcadores e Compassos (Waveform com Zoom)"
+            style={{ marginLeft: 6, borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8' }}
+          >
+            🌊 Waveform
+          </button>
+        )}
       </div>
 
       {loading !== null && (

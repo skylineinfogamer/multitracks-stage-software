@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { BusGroup, ClickSound, ClickSubdivision, OutputBus, Song, Track } from '../types';
 import type { AudioEngine } from '../audio/engine';
-import { BUS_GROUPS, OUTPUT_BUSES, isTrackPitched, trackIcon } from '../music';
+import { BUS_GROUPS, getAvailableOutputBuses, isTrackPitched, trackIcon } from '../music';
 
 interface Props {
   song?: Song;
@@ -16,17 +16,23 @@ interface Props {
   clickSound?: ClickSound;
   autonomousClick?: boolean;
   internalClickVolume?: number;
+  internalClickPan?: number;
   internalClickMute?: boolean;
+  internalClickSolo?: boolean;
   internalClickOutput?: OutputBus;
+  autoGuideSolo?: boolean;
   autoGuideOutput?: OutputBus;
   onToggleAutonomousClick?: () => void;
   onClickSubdivision?: (sub: ClickSubdivision) => void;
   onClickSound?: (snd: ClickSound) => void;
   onInternalClickVolume?: (v: number) => void;
+  onInternalClickPan?: (p: number) => void;
   onInternalClickMute?: () => void;
+  onInternalClickSolo?: () => void;
   onInternalClickOutput?: (out: OutputBus) => void;
   onAutoGuideVolume: (v: number) => void;
   onAutoGuideMute: () => void;
+  onAutoGuideSolo?: () => void;
   onAutoGuideOutput?: (out: OutputBus) => void;
   onTestAutoGuide: () => void;
   onMasterVolume: (v: number) => void;
@@ -58,17 +64,23 @@ export function Mixer({
   clickSound = 'woodblock',
   autonomousClick,
   internalClickVolume = 0.75,
+  internalClickPan = 0,
   internalClickMute = false,
-  internalClickOutput = 'OUT_6',
-  autoGuideOutput = 'OUT_5',
+  internalClickSolo = false,
+  internalClickOutput = 'OUT_4',
+  autoGuideOutput = 'OUT_3',
+  autoGuideSolo = false,
   onToggleAutonomousClick,
   onClickSubdivision,
   onClickSound,
   onInternalClickVolume,
+  onInternalClickPan,
   onInternalClickMute,
+  onInternalClickSolo,
   onInternalClickOutput,
   onAutoGuideVolume,
   onAutoGuideMute,
+  onAutoGuideSolo,
   onAutoGuideOutput,
   onTestAutoGuide,
   onMasterVolume,
@@ -89,49 +101,72 @@ export function Mixer({
   const songRef = useRef(song);
   songRef.current = song;
 
+  const detectedChannels = engine.getDetectedPhysicalChannels();
+
   useEffect(() => {
     let raf = 0;
+    let isCancelled = false;
+
     const loop = () => {
-      meters.current.forEach((el, id) => {
-        let peak = 0;
-        if (id === '__L' || id === '__R') {
-          const [l, r] = engine.masterPeaks();
-          peak = id === '__L' ? l : r;
-        } else if (id === '__AUTO_GUIDE') {
-          const hwPeak = engine.trackPeak('__AUTO_GUIDE');
-          peak = Math.max(
-            hwPeak,
-            !autoGuideMuteRef.current && guideRef.current
-              ? (0.58 + Math.random() * 0.28) * autoGuideVolRef.current
-              : 0,
-          );
-        } else if (id === '__INTERNAL_CLICK') {
-          peak = engine.trackPeak('__INTERNAL_CLICK');
-        } else if (id.startsWith('bus:')) {
-          const busId = id.slice(4) as BusGroup;
-          const tracks = songRef.current?.tracks.filter((t) => (t.bus ?? 'KEYS') === busId) ?? [];
-          for (const tr of tracks) {
-            const p = engine.trackPeak(tr.id);
-            if (p > peak) peak = p;
+      if (isCancelled) return;
+      try {
+        meters.current.forEach((el, id) => {
+          if (!el) return;
+          try {
+            let peak = 0;
+            if (id === '__L' || id === '__R') {
+              const [l, r] = engine.masterPeaks();
+              peak = id === '__L' ? l : r;
+            } else if (id === '__AUTO_GUIDE') {
+              const hwPeak = engine.trackPeak('__AUTO_GUIDE');
+              peak = Math.max(
+                hwPeak,
+                !autoGuideMuteRef.current && guideRef.current
+                  ? (0.58 + Math.random() * 0.28) * autoGuideVolRef.current
+                  : 0,
+              );
+            } else if (id.startsWith('bus:')) {
+              const busId = id.slice(4) as BusGroup;
+              const tracks = songRef.current?.tracks.filter((t) => (t.bus ?? 'KEYS') === busId) ?? [];
+              for (const tr of tracks) {
+                const p = engine.trackPeak(tr.id);
+                if (p > peak) peak = p;
+              }
+            } else {
+              peak = engine.trackPeak(id);
+            }
+
+            // Standard linear dBFS mapping (-60 dB to +6 dB) across all channels
+            const target = meterPct(peak);
+            const prev = held.current.get(id) ?? 0;
+            // Fluid, consistent peak release curve across all channels including Click
+            const v = target > prev ? target : Math.max(0, prev * 0.90 - 0.2);
+            held.current.set(id, v);
+
+            // GPU-accelerated: use transform scaleY instead of height for WKWebView/macOS performance
+            const scaleY = v / 100;
+            el.style.transform = `scaleY(${scaleY})`;
+            el.classList.toggle('clip', peak >= 0.98);
+          } catch {
+            // Channel-isolated error boundary to prevent graphic loop interruptions
           }
-        } else {
-          peak = engine.trackPeak(id);
-        }
-        const target = meterPct(peak);
-        const prev = held.current.get(id) ?? 0;
-        const v = target > prev ? target : Math.max(target, prev - 2.2);
-        held.current.set(id, v);
-        el.style.height = `${100 - v}%`;
-        el.classList.toggle('clip', peak >= 0.98);
-      });
-      raf = requestAnimationFrame(loop);
+        });
+      } catch {
+        // Safe UI decoupling: graphics hiccups or ref changes never affect transport or audio thread
+      }
+      if (!isCancelled) {
+        raf = requestAnimationFrame(loop);
+      }
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      isCancelled = true;
+      cancelAnimationFrame(raf);
+    };
   }, [engine]);
 
   if (!song) return <div className="mixer empty">Carregue uma música para ver o mixer.</div>;
-  const anySolo = song.tracks.some((t) => t.solo);
+  const anySolo = song.tracks.some((t) => t.solo) || internalClickSolo || autoGuideSolo;
 
   // ALL tracks uploaded by the user are rendered in the main channel strips!
   // No user tracks (such as original audio click or guide stems) are filtered out!
@@ -160,15 +195,30 @@ export function Mixer({
           <button
             className={`smart-route-btn ${autonomousClick ? 'on' : ''}`}
             onClick={onToggleAutonomousClick}
-            title="Click Autônomo: Mantém o metrônomo batendo no compasso mesmo se o VS for pausado/parado"
+            title={
+              autonomousClick
+                ? 'Metrônomo do Software ATIVO (Clique para desligar)'
+                : 'Metrônomo do Software DESLIGADO (Clique para ativar)'
+            }
             style={
               autonomousClick
                 ? { background: 'rgba(243, 156, 18, 0.25)', borderColor: '#F39C12', color: '#F39C12', fontWeight: 800 }
                 : undefined
             }
           >
-            {autonomousClick ? '● AUTÔNOMO' : '○ AUTÔNOMO'}
+            {autonomousClick ? '● AUTÔNOMO (ON)' : '○ AUTÔNOMO (OFF)'}
           </button>
+          <input
+            className="pan"
+            type="range"
+            min={-1}
+            max={1}
+            step={0.01}
+            value={internalClickPan}
+            title={`Pan ${internalClickPan === 0 ? 'C' : internalClickPan < 0 ? `L${Math.round(-internalClickPan * 100)}` : `R${Math.round(internalClickPan * 100)}`}`}
+            onChange={(e) => onInternalClickPan?.(parseFloat(e.target.value))}
+            onDoubleClick={() => onInternalClickPan?.(0)}
+          />
           <div className="click-quick-row">
             <select
               className="bus-select"
@@ -216,16 +266,23 @@ export function Mixer({
             >
               M
             </button>
+            <button
+              className={`s ${internalClickSolo ? 'on' : ''}`}
+              title="Solo Click do Software"
+              onClick={onInternalClickSolo}
+            >
+              S
+            </button>
           </div>
           <select
             className="bus-select"
             value={internalClickOutput}
             onChange={(e) => onInternalClickOutput?.(e.target.value as OutputBus)}
-            title="Saída Física do Click do Software (Padrão: Out 6 Fones Click)"
+            title="Saída Física do Metrônomo (Click)"
           >
-            {OUTPUT_BUSES.map((b) => (
+            {getAvailableOutputBuses(detectedChannels, internalClickOutput).map((b) => (
               <option key={b.id} value={b.id}>
-                {b.short}
+                {b.label}
               </option>
             ))}
           </select>
@@ -275,16 +332,23 @@ export function Mixer({
             >
               M
             </button>
+            <button
+              className={`s ${autoGuideSolo ? 'on' : ''}`}
+              title="Solo Guide IA (Ouvir somente a Voz Guia)"
+              onClick={onAutoGuideSolo}
+            >
+              S
+            </button>
           </div>
           <select
             className="bus-select"
             value={autoGuideOutput}
             onChange={(e) => onAutoGuideOutput?.(e.target.value as OutputBus)}
-            title="Saída Física da Voz Guia IA (Padrão: Out 5 Fones Guia)"
+            title="Saída Física da Voz Guia"
           >
-            {OUTPUT_BUSES.map((b) => (
+            {getAvailableOutputBuses(detectedChannels, autoGuideOutput).map((b) => (
               <option key={b.id} value={b.id}>
-                {b.short}
+                {b.label}
               </option>
             ))}
           </select>
@@ -370,11 +434,11 @@ export function Mixer({
                   className="bus-select"
                   value={outBus}
                   onChange={(e) => onTrack(t.id, { output: e.target.value as OutputBus })}
-                  title="Roteamento de Saída (MultiOuts / SmartRouting)"
+                  title="Roteamento de Saída Física (DAC)"
                 >
-                  {OUTPUT_BUSES.map((b) => (
+                  {getAvailableOutputBuses(detectedChannels, outBus).map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.short}
+                      {b.label}
                     </option>
                   ))}
                 </select>

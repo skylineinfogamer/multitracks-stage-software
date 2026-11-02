@@ -1,0 +1,11 @@
+{
+  "version": "1.0.4",
+  "notes": "Worship Tools v1.0.4",
+  "pub_date": "2026-11-01T20:05:06.110Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWC9GT1JTejhIY0xuei9CNWRtU2FVV01Oa3JoOEg2VzIyU1YwRm5VTWFoL1dpNFJjVWQwc2VmVXZRanlaR04yV2ZSaG9QT1AvQW5XTllNMFlqeDRZNW5veTF2dDdnTXdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzNTA2CWZpbGU6V29yc2hpcCBUb29sc18xLjAuNF94NjQtc2V0dXAuZXhlCXZlcnNpb246MS4wLjQKQjBMamozVmNzb25KMFVPb2Q0RElWMXhzQ3pEMGlBRll5MjBEMG1jUVE2eUpQSE9HLzZDQVlpbStZcWYwMUVBRy9qbndONitxU0orZUFCT2NUcTNiQ1E9PQo=",
+      "url": "https://worshiptools-28vv4k.cubehost.dev/updates/Worship.Tools_1.0.4_x64-setup.exe"
+    }
+  }
+}

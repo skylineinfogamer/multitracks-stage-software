@@ -64,6 +64,16 @@ export function SetlistStrip({
     onReorder(ids);
   };
 
+  const moveSong = (index: number, direction: -1 | 1, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const target = index + direction;
+    if (target < 0 || target >= songs.length) return;
+    const ids = songs.map((s) => s.id);
+    const [m] = ids.splice(index, 1);
+    ids.splice(target, 0, m);
+    onReorder(ids);
+  };
+
   const cycleTransition = (song: Song) => {
     const cur = song.transitionAfter ?? 'AUTO_ADVANCE';
     const next = TRANSITION_ORDER[(TRANSITION_ORDER.indexOf(cur) + 1) % TRANSITION_ORDER.length];
@@ -81,21 +91,35 @@ export function SetlistStrip({
         return (
           <Fragment key={s.id}>
             <div
-              className={`song-card ${active ? 'active' : ''} ${over === i ? 'over' : ''}`}
-              draggable
-              onDragStart={() => setDrag(i)}
+              className={`song-card ${active ? 'active' : ''} ${over === i ? 'over' : ''} ${editMode ? 'is-editable' : ''}`}
+              draggable={editMode}
+              onDragStart={(e) => {
+                if (!editMode) return;
+                setDrag(i);
+                e.dataTransfer.setData('text/plain', String(i));
+              }}
               onDragOver={(e) => {
+                if (!editMode) return;
                 e.preventDefault();
                 setOver(i);
               }}
               onDragLeave={() => setOver(null)}
-              onDrop={() => {
+              onDrop={(e) => {
+                if (!editMode) return;
+                e.preventDefault();
                 drop(i);
                 setDrag(null);
                 setOver(null);
               }}
-              onClick={() => onSelect(s.id)}
+              onClick={() => {
+                if (!editMode) onSelect(s.id);
+              }}
             >
+              {editMode && (
+                <div className="reorder-handle" title="Arrastar para reordenar no Setlist">
+                  ⠿
+                </div>
+              )}
               <div className="num">{i + 1}</div>
               <div className="body">
                 <div className="name" title={s.name}>
@@ -111,6 +135,30 @@ export function SetlistStrip({
                   <span>{formatTime(s.duration)}</span>
                 </div>
               </div>
+
+              {editMode && (
+                <div className="reorder-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="reorder-btn"
+                    disabled={i === 0}
+                    title="Mover para esquerda"
+                    onClick={(e) => moveSong(i, -1, e)}
+                  >
+                    ◀
+                  </button>
+                  <button
+                    type="button"
+                    className="reorder-btn"
+                    disabled={i === songs.length - 1}
+                    title="Mover para direita"
+                    onClick={(e) => moveSong(i, 1, e)}
+                  >
+                    ▶
+                  </button>
+                </div>
+              )}
+
               <button
                 className="rm"
                 title="Remover do setlist"

@@ -9,6 +9,41 @@ export interface UpdateInfo {
   date?: string;
 }
 
+/**
+ * Utilitário seguro para formatar mensagens de erro retornadas pelo Tauri/Rust.
+ * No Tauri, rejeições de IPC frequentemente retornam strings nativas de erro
+ * ou objetos que não implementam a interface padrão Error (sem .message).
+ */
+export function formatTauriErrorMessage(error: unknown): string {
+  if (error === null || error === undefined) {
+    return 'Erro desconhecido retornado pelo backend.';
+  }
+  if (typeof error === 'string') {
+    return error.trim() || 'Erro desconhecido.';
+  }
+  if (error instanceof Error) {
+    return error.message || String(error);
+  }
+  if (typeof error === 'object') {
+    const errObj = error as Record<string, unknown>;
+    if (typeof errObj.message === 'string' && errObj.message.trim()) {
+      return errObj.message.trim();
+    }
+    if (typeof errObj.error === 'string' && errObj.error.trim()) {
+      return errObj.error.trim();
+    }
+    try {
+      const json = JSON.stringify(error);
+      if (json && json !== '{}') {
+        return json;
+      }
+    } catch {
+      // fallback abaixo
+    }
+  }
+  return String(error);
+}
+
 export function useAutoUpdater() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -42,10 +77,11 @@ export function useAutoUpdater() {
           alert('Você já está utilizando a versão mais recente do Worship Tools!');
         }
       }
-    } catch (err) {
-      console.warn('Erro ao verificar atualizações:', err);
+    } catch (err: unknown) {
+      console.error('Detalhes do erro do Tauri (verificação):', err);
       if (manual) {
-        setError(`Falha ao verificar atualizações: ${(err as Error).message}`);
+        const errorMsg = formatTauriErrorMessage(err);
+        setError(`Falha ao verificar atualizações: ${errorMsg}`);
       }
     } finally {
       setIsChecking(false);
@@ -65,14 +101,16 @@ export function useAutoUpdater() {
       let totalBytes = 0;
       let downloadedBytes = 0;
 
-      await update.downloadAndInstall((event) => {
+      await update.downloadAndInstall((event: any) => {
+        if (!event) return;
+
         switch (event.event) {
           case 'Started':
-            totalBytes = event.data.contentLength ?? 0;
+            totalBytes = event.data?.contentLength ?? 0;
             setDownloadStatus('Download iniciado…');
             break;
           case 'Progress': {
-            downloadedBytes += event.data.chunkLength;
+            downloadedBytes += event.data?.chunkLength ?? 0;
             if (totalBytes > 0) {
               const pct = Math.min(100, Math.round((downloadedBytes / totalBytes) * 100));
               setDownloadProgress(pct);
@@ -89,11 +127,22 @@ export function useAutoUpdater() {
             setDownloadProgress(100);
             setDownloadStatus('Instalação concluída! Reiniciando…');
             break;
+          // Tratamento para eventos de erro (ex: caso venha pelo listener de eventos ou onUpdaterEvent)
+          case 'Error':
+          case 'ERROR': {
+            const rawEvtErr = event.data ?? event.error ?? event;
+            console.error('Detalhes do erro do Tauri (evento updater):', rawEvtErr);
+            const evtErrMsg = formatTauriErrorMessage(rawEvtErr);
+            setError(`Falha ao instalar a atualização: ${evtErrMsg}`);
+            break;
+          }
+          default:
+            break;
         }
       });
 
       setDownloadStatus('Atualização aplicada com sucesso! Reiniciando o app…');
-      // Wait 1.2s to show success feedback before relaunching
+      // Aguarda 1.2s para exibir feedback visual antes de reiniciar
       setTimeout(async () => {
         try {
           await relaunch();
@@ -102,9 +151,10 @@ export function useAutoUpdater() {
           window.location.reload();
         }
       }, 1200);
-    } catch (err) {
-      console.error('Erro ao instalar atualização:', err);
-      setError(`Falha ao instalar a atualização: ${(err as Error).message}`);
+    } catch (error: unknown) {
+      console.error('Detalhes do erro do Tauri:', error);
+      const errorMessage = formatTauriErrorMessage(error);
+      setError(`Falha ao instalar a atualização: ${errorMessage}`);
       setIsDownloading(false);
     }
   }, []);
@@ -114,7 +164,7 @@ export function useAutoUpdater() {
     setError(null);
   }, []);
 
-  // Silent automatic check on app startup (delayed 3.5s so startup remains zero-latency)
+  // Verificação silenciosa ao iniciar o app (atrasada em 3.5s para não impactar o cold-start)
   useEffect(() => {
     const timer = setTimeout(() => {
       void checkForUpdates(false);
@@ -132,6 +182,7 @@ export function useAutoUpdater() {
     error,
     checkForUpdates,
     downloadAndApply,
+    installUpdate: downloadAndApply,
     dismissUpdate,
   };
 }

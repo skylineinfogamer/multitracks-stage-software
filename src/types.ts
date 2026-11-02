@@ -20,7 +20,19 @@ export type SectionType =
 
 export type GuideMode = 'REANNOUNCE' | 'SILENCE_ON_JUMP' | 'NORMAL';
 
-export type OutputBus = 'OUT_1_2' | 'OUT_1_L' | 'OUT_2_R' | 'OUT_3_4' | 'OUT_5' | 'OUT_6';
+export type OutputBus =
+  | 'OUT_1_2'
+  | 'OUT_1_L'
+  | 'OUT_2_R'
+  | 'OUT_3_4'
+  | 'OUT_3'
+  | 'OUT_4'
+  | 'OUT_5_6'
+  | 'OUT_5'
+  | 'OUT_6'
+  | 'OUT_7_8'
+  | 'OUT_7'
+  | 'OUT_8';
 
 export type BusGroup = 'DRUMS' | 'BASS' | 'GUITARS' | 'KEYS' | 'VOCALS' | 'UTILITY';
 

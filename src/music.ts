@@ -57,13 +57,43 @@ export function sectionColor(s: Pick<Section, 'type' | 'color'>): string {
 }
 
 export const OUTPUT_BUSES: { id: OutputBus; label: string; short: string; desc: string }[] = [
-  { id: 'OUT_1_2', label: 'Out 1/2 (Main Estéreo)', short: 'Out 1/2', desc: 'Estéreo P.A. Frontal (Canais 1 e 2)' },
-  { id: 'OUT_1_L', label: 'Out 1 (L - Esquerda)', short: 'Out 1 (L)', desc: '100% Canal 1 / Esquerda (Fone / Click)' },
-  { id: 'OUT_2_R', label: 'Out 2 (R - Direita)', short: 'Out 2 (R)', desc: '100% Canal 2 / Direita (VS Mono P.A.)' },
-  { id: 'OUT_3_4', label: 'Out 3/4 (Sub / Aux)', short: 'Out 3/4', desc: 'Saídas 3/4 (Placa Multicanal) ou R (2ch)' },
-  { id: 'OUT_5', label: 'Out 5 (Guide In-Ear)', short: 'Out 5 (Fones Guia)', desc: 'Saída 5 (Multicanal) ou Canal R (2ch)' },
-  { id: 'OUT_6', label: 'Out 6 (Click In-Ear)', short: 'Out 6 (Fones Click)', desc: 'Saída 6 (Multicanal) ou Canal L (2ch)' },
+  { id: 'OUT_1_2', label: 'Out 1/2 (Estéreo)', short: 'Out 1/2', desc: 'Canais Físicos 1 e 2 (Estéreo)' },
+  { id: 'OUT_1_L', label: 'Out 1 (Mono)', short: 'Out 1', desc: 'Canal Físico 1 (Mono L)' },
+  { id: 'OUT_2_R', label: 'Out 2 (Mono)', short: 'Out 2', desc: 'Canal Físico 2 (Mono R)' },
+  { id: 'OUT_3_4', label: 'Out 3/4 (Estéreo)', short: 'Out 3/4', desc: 'Canais Físicos 3 e 4 (Estéreo)' },
+  { id: 'OUT_3', label: 'Out 3 (Mono)', short: 'Out 3', desc: 'Canal Físico 3 (Mono)' },
+  { id: 'OUT_4', label: 'Out 4 (Mono)', short: 'Out 4', desc: 'Canal Físico 4 (Mono)' },
+  { id: 'OUT_5_6', label: 'Out 5/6 (Estéreo)', short: 'Out 5/6', desc: 'Canais Físicos 5 e 6 (Estéreo)' },
+  { id: 'OUT_5', label: 'Out 5 (Mono)', short: 'Out 5', desc: 'Canal Físico 5 (Mono)' },
+  { id: 'OUT_6', label: 'Out 6 (Mono)', short: 'Out 6', desc: 'Canal Físico 6 (Mono)' },
+  { id: 'OUT_7_8', label: 'Out 7/8 (Estéreo)', short: 'Out 7/8', desc: 'Canais Físicos 7 e 8 (Estéreo)' },
+  { id: 'OUT_7', label: 'Out 7 (Mono)', short: 'Out 7', desc: 'Canal Físico 7 (Mono)' },
+  { id: 'OUT_8', label: 'Out 8 (Mono)', short: 'Out 8', desc: 'Canal Físico 8 (Mono)' },
 ];
+
+/**
+ * Dynamically filters available output buses based on the exact hardware channel count
+ * supported by the selected soundcard, while always keeping any currently assigned bus visible.
+ */
+export function getAvailableOutputBuses(
+  maxChannels = 2,
+  currentBus?: OutputBus,
+): { id: OutputBus; label: string; short: string; desc: string }[] {
+  const ch = Math.max(2, maxChannels);
+  return OUTPUT_BUSES.filter((b) => {
+    // Always include current assignment if already set
+    if (currentBus && b.id === currentBus) return true;
+    // Channels 1 and 2 are always available
+    if (b.id === 'OUT_1_2' || b.id === 'OUT_1_L' || b.id === 'OUT_2_R') return true;
+    // Channels 3 and 4
+    if (b.id === 'OUT_3_4' || b.id === 'OUT_3' || b.id === 'OUT_4') return ch >= 4;
+    // Channels 5 and 6
+    if (b.id === 'OUT_5_6' || b.id === 'OUT_5' || b.id === 'OUT_6') return ch >= 6;
+    // Channels 7 and 8
+    if (b.id === 'OUT_7_8' || b.id === 'OUT_7' || b.id === 'OUT_8') return ch >= 8;
+    return false;
+  });
+}
 
 export const BUS_GROUPS: { id: BusGroup; label: string; color: string }[] = [
   { id: 'UTILITY', label: 'CLICK & GUIA', color: '#E9B44C' },
@@ -231,7 +261,14 @@ export function guessTrack(
   const low = clean.toLowerCase();
   const norm = clean.replace(/[_\-.\s+&/\\()]+/g, ' ').toLowerCase();
 
-  // COMBINED CLICK & GUIDE (Must be handled first so it doesn't get collapsed into just Click!)
+  // Nome legível formatado preservando descrições específicas (ex: "SNARE TOP", "VIOLÃO 1", "EG LEAD", "SHAKER")
+  const formattedClean = clean
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+
+  // 1. COMBINED CLICK & GUIDE (Deve ser verificado antes para não ser categorizado apenas como Click)
   if (isCombinedClickGuide(clean) || isCombinedClickGuide(fileName)) {
     return {
       name: 'CLICK & GUIA (COMBINADO)',
@@ -244,7 +281,7 @@ export function guessTrack(
     };
   }
 
-  // CLICK (Áudio Original)
+  // 2. CLICK (Áudio Original)
   if (
     /\b(click|metr[oô]nomo|clique|bpm|tempo)\b/i.test(norm) ||
     norm.includes('click') ||
@@ -254,7 +291,7 @@ export function guessTrack(
     return { name: 'CLICK (Áudio Original)', color: '#F39C12', kind: 'audio', bus: 'UTILITY', output: 'OUT_6', pitchShift: false };
   }
 
-  // GUIDE / CUING (Áudio Original)
+  // 3. GUIDE / CUING (Áudio Original)
   if (
     /\b(guide|guia|cues?|count|contagem|voz\s*guia|slate)\b/i.test(norm) ||
     norm.includes('guide') ||
@@ -265,98 +302,80 @@ export function guessTrack(
     return { name: 'GUIDE (Áudio Original)', color: '#0099FF', kind: 'audio', bus: 'UTILITY', output: 'OUT_5', pitchShift: false };
   }
 
-  // DRUMS & PERCUSSION
-  if (/\b(kick|bumbo|bd)\b/i.test(low)) {
-    return { name: 'BUMBO', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
+  // 4. DRUMS & PERCUSSION
+  if (
+    /\b(kick|bumbo|bd|snare|caixa|sd|snr|hat|hihat|hi[\s_-]*hat|hh|chimbal|toms?|tons?|surdo|floor|rack|cymbal|cymbals|pratos?|overhead|oh|crash|ride|perc|percuss[aã]o|shaker|tamb|pandeiro|conga|bongo|clap|snap|loop|beat|drums?|bateria|kit)\b/i.test(
+      low,
+    )
+  ) {
+    let name = formattedClean;
+    if (!name || name.length <= 2) {
+      if (/\b(kick|bumbo|bd)\b/i.test(low)) name = 'BUMBO';
+      else if (/\b(snare|caixa|sd|snr)\b/i.test(low)) name = 'CAIXA';
+      else if (/\b(hat|hihat|hh|chimbal)\b/i.test(low)) name = 'CHIMBAL';
+      else if (/\b(toms?|tons?)\b/i.test(low)) name = 'TONS';
+      else if (/\b(cymbal|pratos?|overhead|oh|crash|ride)\b/i.test(low)) name = 'PRATOS';
+      else if (/\b(loop|beat)\b/i.test(low)) name = 'LOOP';
+      else name = 'BATERIA';
+    }
+    return { name, color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
   }
-  if (/\b(snare|caixa|sd|snr)\b/i.test(low)) {
-    return { name: 'CAIXA', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
-  }
-  if (/\b(hat|hihat|hi[\s_-]*hat|hh|chimbal)\b/i.test(low)) {
-    return { name: 'CHIMBAL', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
-  }
-  if (/\b(toms?|tons?|surdo|floor|rack)\b/i.test(low)) {
-    return { name: 'TONS', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
-  }
-  if (/\b(cymbal|cymbals|pratos?|overhead|oh|crash|ride)\b/i.test(low)) {
-    return { name: 'PRATOS', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
-  }
-  if (/\b(perc|percuss[aã]o|shaker|tamb|pandeiro|conga|bongo|clap|snap)\b/i.test(low)) {
-    return { name: 'PERCUSSÃO', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
-  }
-  if (/\b(loop|beat)\b/i.test(low)) {
-    return { name: 'LOOP', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
-  }
+
+  // 5. FX / SFX
   if (/\b(fx|sfx|swell|impact|riser|drop)\b/i.test(low)) {
-    return { name: 'EFEITOS (FX)', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
-  }
-  if (/\b(drums?|bateria|kit)\b/i.test(low)) {
-    return { name: 'BATERIA', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
+    return { name: formattedClean || 'EFEITOS (FX)', color: '#E5484D', kind: 'audio', bus: 'DRUMS', output: 'OUT_1_2', pitchShift: false };
   }
 
-  // BASS
-  if (/\b(synth\s*bass|sub\s*bass|moog|sub)\b/i.test(low)) {
-    return { name: 'SYNTH BASS', color: '#8E5CF6', kind: 'audio', bus: 'BASS', output: 'OUT_3_4', pitchShift: true };
-  }
-  if (/\b(bass|baixo|contra\s*baixo|e[\s_-]*bass)\b/i.test(low)) {
-    return { name: 'BAIXO', color: '#8E5CF6', kind: 'audio', bus: 'BASS', output: 'OUT_3_4', pitchShift: true };
-  }
-
-  // GUITARS
-  if (/\b(ag\d*|acoustic|viol[aã]o|ac[uú]stic\s*gtr|ac\s*gtr)\b/i.test(low)) {
-    const num = low.match(/\d+/)?.[0];
-    return { name: num ? `VIOLÃO ${num}` : 'VIOLÃO', color: '#F2994A', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(eg\s*1|electric\s*1|guitarra\s*1|gtr\s*1|elec\s*gtr\s*1)\b/i.test(low)) {
-    return { name: 'GUITARRA 1', color: '#F2994A', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(eg\s*2|electric\s*2|guitarra\s*2|gtr\s*2|elec\s*gtr\s*2)\b/i.test(low)) {
-    return { name: 'GUITARRA 2', color: '#F2994A', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(solo|lead\s*gtr|gtr\s*lead|guitarra\s*solo|riff)\b/i.test(low)) {
-    return { name: 'GUITARRA SOLO', color: '#F2994A', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(eg\d*|electric|guitarra|gtr|guitarras)\b/i.test(low)) {
-    const num = low.match(/\d+/)?.[0];
-    return { name: num ? `GUITARRA ${num}` : 'GUITARRA', color: '#F2994A', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2', pitchShift: true };
+  // 6. BASS
+  if (/\b(synth\s*bass|sub\s*bass|moog|sub|bass|baixo|contra\s*baixo|e[\s_-]*bass)\b/i.test(low)) {
+    let name = formattedClean;
+    if (!name || name.length <= 2) {
+      name = /\b(synth|sub|moog)\b/i.test(low) ? 'SYNTH BASS' : 'BAIXO';
+    }
+    return { name, color: '#8E5CF6', kind: 'audio', bus: 'BASS', output: 'OUT_3_4', pitchShift: true };
   }
 
-  // KEYS, SYNTHS, PADS
-  if (/\b(piano|grand|upright|ac\s*piano)\b/i.test(low)) {
-    return { name: 'PIANO', color: '#2F80ED', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(rhodes|wurlitzer|ep|organ|org[aã]o|b3|hammond)\b/i.test(low)) {
-    return { name: 'ÓRGÃO / RHODES', color: '#2F80ED', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(pad|pads|ambient|atmosphere|shimmer|atmo)\b/i.test(low)) {
-    return { name: 'PAD', color: '#2F80ED', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(synth|synths|sint|arp|lead\s*synth|pluck)\b/i.test(low)) {
-    return { name: 'SYNTH', color: '#2F80ED', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(strings?|cordas|cello|violin|viola|brass|metais|horn|trompete)\b/i.test(low)) {
-    return { name: 'CORDAS / METAIS', color: '#2F80ED', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(key|keys|teclado)\b/i.test(low)) {
-    return { name: 'TECLADO', color: '#2F80ED', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2', pitchShift: true };
+  // 7. GUITARS
+  if (/\b(ag\d*|acoustic|viol[aã]o|ac[uú]stic\s*gtr|ac\s*gtr|eg\d*|electric|guitarra|gtr|guitarras|solo|riff|lead\s*gtr)\b/i.test(low)) {
+    let name = formattedClean;
+    if (!name || name.length <= 2) {
+      if (/\b(ag\d*|acoustic|viol[aã]o)\b/i.test(low)) name = 'VIOLÃO';
+      else if (/\b(solo|lead)\b/i.test(low)) name = 'GUITARRA SOLO';
+      else name = 'GUITARRA';
+    }
+    return { name, color: '#F2994A', kind: 'audio', bus: 'GUITARS', output: 'OUT_1_2', pitchShift: true };
   }
 
-  // VOCALS
-  if (/\b(lead\s*voc|lead\s*vox|voz\s*principal|lead\s*vocal|vocal\s*principal)\b/i.test(low)) {
-    return { name: 'VOZ PRINCIPAL', color: '#EB5FA8', kind: 'audio', bus: 'VOCALS', output: 'OUT_1_2', pitchShift: true };
+  // 8. KEYS, SYNTHS, PADS, ORCHESTRA
+  if (
+    /\b(piano|grand|upright|rhodes|wurlitzer|ep|organ|org[aã]o|b3|hammond|pad|pads|ambient|atmosphere|shimmer|atmo|synth|synths|sint|arp|strings?|cordas|cello|violin|viola|brass|metais|horn|trompete|key|keys|teclado)\b/i.test(
+      low,
+    )
+  ) {
+    let name = formattedClean;
+    if (!name || name.length <= 2) {
+      if (/\b(piano|grand|upright)\b/i.test(low)) name = 'PIANO';
+      else if (/\b(rhodes|organ|org[aã]o)\b/i.test(low)) name = 'ÓRGÃO / RHODES';
+      else if (/\b(pad|ambient|shimmer)\b/i.test(low)) name = 'PAD';
+      else if (/\b(synth|sint|arp)\b/i.test(low)) name = 'SYNTH';
+      else if (/\b(strings?|cordas|brass|metais)\b/i.test(low)) name = 'CORDAS / METAIS';
+      else name = 'TECLADO';
+    }
+    return { name, color: '#2F80ED', kind: 'audio', bus: 'KEYS', output: 'OUT_1_2', pitchShift: true };
   }
-  if (/\b(bgv\s*1|vocal\s*1|backing\s*1|voz\s*1)\b/i.test(low)) {
-    return { name: 'BGV 1', color: '#EB5FA8', kind: 'audio', bus: 'VOCALS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(bgv\s*2|vocal\s*2|backing\s*2|voz\s*2)\b/i.test(low)) {
-    return { name: 'BGV 2', color: '#EB5FA8', kind: 'audio', bus: 'VOCALS', output: 'OUT_1_2', pitchShift: true };
-  }
-  if (/\b(bgv|bgvs|backing|backings|coro|choir|vozes|vocal|vocals)\b/i.test(low)) {
-    return { name: 'CORO / BGV', color: '#EB5FA8', kind: 'audio', bus: 'VOCALS', output: 'OUT_1_2', pitchShift: true };
+
+  // 9. VOCALS
+  if (/\b(lead\s*voc|lead\s*vox|voz\s*principal|vocal\s*principal|bgv|bgvs|backing|backings|coro|choir|vozes|vocal|vocals|voz)\b/i.test(low)) {
+    let name = formattedClean;
+    if (!name || name.length <= 2) {
+      if (/\b(lead|principal)\b/i.test(low)) name = 'VOZ PRINCIPAL';
+      else name = 'CORO / BGV';
+    }
+    return { name, color: '#EB5FA8', kind: 'audio', bus: 'VOCALS', output: 'OUT_1_2', pitchShift: true };
   }
 
   // Fallback: clean uppercase name
-  const prettyName = clean.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase() || `TRACK ${idx + 1}`;
+  const prettyName = formattedClean || `TRACK ${idx + 1}`;
   return {
     name: prettyName,
     color: TRACK_COLORS[idx % TRACK_COLORS.length],
@@ -473,15 +492,20 @@ export function trackIcon(t: Pick<Track, 'name' | 'kind' | 'bus'>): string {
 export function ensureUtilityTracks(song: Song): Song {
   const tracks = song.tracks
     .filter((t) => {
-      // Remove legacy dummy tracks that have no audio file attached
-      if (!t.fileName && (t.id === 'click' || t.id === 'guide' || t.name === 'CLICK' || t.name === 'GUIA')) {
+      // Remove apenas faixas fantasmas legadas de voz sintetizada que não tinham áudio
+      if (!t.fileName && t.id === 'guide' && t.kind === 'guide') {
         return false;
       }
       return true;
     })
     .map((t) => {
       const low = t.name.toLowerCase();
-      if ((t.kind === 'click' || low === 'click' || low === 'clique' || low === 'metronomo') && !t.name.includes('(Áudio Original)')) {
+      // Apenas converte para áudio original se o canal tiver arquivo de áudio real (fileName)
+      if (
+        Boolean(t.fileName) &&
+        (t.kind === 'click' || low === 'click' || low === 'clique' || low === 'metronomo') &&
+        !t.name.includes('(Áudio Original)')
+      ) {
         return {
           ...t,
           name: 'CLICK (Áudio Original)',
@@ -492,7 +516,11 @@ export function ensureUtilityTracks(song: Song): Song {
           pitchShift: false,
         };
       }
-      if ((t.kind === 'guide' || low === 'guide' || low === 'guia' || low === 'cue') && !t.name.includes('(Áudio Original)')) {
+      if (
+        Boolean(t.fileName) &&
+        (t.kind === 'guide' || low === 'guide' || low === 'guia' || low === 'cue') &&
+        !t.name.includes('(Áudio Original)')
+      ) {
         return {
           ...t,
           name: 'GUIDE (Áudio Original)',

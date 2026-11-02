@@ -1,6 +1,6 @@
 import type { GuideMode, JumpMode, SectionType, Song, TransitionMode } from '../types';
 import { SECTION_META, sectionColor, transposeChordPro, transposeKey } from '../music';
-import { IconChords, IconEdit, IconLoop, IconMic, IconSparkles } from './Icons';
+import { IconChords, IconEdit, IconLoop, IconMic, IconSparkles, IconWaveform } from './Icons';
 
 interface Props {
   song: Song;
@@ -26,6 +26,7 @@ interface Props {
   onTransitionMode: (m: TransitionMode) => void;
   onToggleChords: () => void;
   onEdit: () => void;
+  onOpenWaveform: () => void;
   onOpenAi: () => void;
 }
 
@@ -140,6 +141,15 @@ export function SectionGrid(p: Props) {
 
           <button className="chip" onClick={p.onEdit}>
             <IconEdit size={14} /> Editar Arranjo
+          </button>
+
+          <button
+            className="chip waveform-chip"
+            onClick={p.onOpenWaveform}
+            title="Abrir Editor de Waveform, Seções e Compassos com Zoom e Precisão"
+            style={{ borderColor: 'rgba(56, 189, 248, 0.45)', color: '#38bdf8' }}
+          >
+            <IconWaveform size={14} /> Timeline Waveform
           </button>
         </div>
       </div>

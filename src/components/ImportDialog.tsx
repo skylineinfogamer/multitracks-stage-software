@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { BusGroup, OutputBus, Song, Track, TrackKind } from '../types';
 import { KEYS, guessTrack, orderTracksForStage, uid } from '../music';
-import { decodeAudioDataSafe, isValidAudioCandidate, saveStem } from '../storage';
+import { decodeAudioDataSafe, ensureArrayBuffer, isValidAudioCandidate, saveStem } from '../storage';
 import { isCombinedClickGuide, isDualChannelClickGuide, splitStereoClickGuide } from '../audio/audioSeparation';
 import { processZipFile } from '../utils/zipExtractor';
 import {
@@ -83,8 +83,9 @@ export function ImportDialog({ ctx, onClose, onImported }: Props) {
                 .trim();
               setName(cleanZip);
             }
-          } catch (err) {
+          } catch (err: any) {
             console.warn('Falha ao descompactar ZIP:', err);
+            alert(err?.message || 'Falha ao descompactar o arquivo ZIP selecionado.');
           }
         } else if (isValidAudioCandidate(f)) {
           try {
@@ -143,10 +144,11 @@ export function ImportDialog({ ctx, onClose, onImported }: Props) {
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
         setBusy(`Processando e separando canais (${i + 1}/${items.length}): ${it.name}…`);
-        const ab = it.data;
+        await new Promise((r) => setTimeout(r, 0));
+        const ab = ensureArrayBuffer(it.data);
 
         try {
-          const decoded = await decodeAudioDataSafe(ctx, ab.slice(0));
+          const decoded = await decodeAudioDataSafe(ctx, ab);
           if (isFinite(decoded.duration) && decoded.duration > 0) {
             duration = Math.max(duration, decoded.duration);
           }
@@ -235,6 +237,24 @@ export function ImportDialog({ ctx, onClose, onImported }: Props) {
       }
 
       if (!duration || duration < 5) duration = 240;
+
+      // Se genClick foi marcado e não há canal de click gravado, adiciona canal de click sintetizado
+      const hasClickTrack = tracks.some((t) => t.kind === 'click' || t.name.includes('CLICK'));
+      if (genClick && !hasClickTrack) {
+        const clickId = uid('tr_click');
+        tracks.unshift({
+          id: clickId,
+          name: 'CLICK',
+          color: '#F39C12',
+          kind: 'click',
+          bus: 'UTILITY',
+          output: 'OUT_6',
+          volume: 0.8,
+          pan: 0,
+          mute: false,
+          solo: false,
+        });
+      }
 
       const baseSong: Song & { _preloadedBuffers?: Map<string, AudioBuffer> } = {
         id: songId,
@@ -399,7 +419,13 @@ export function ImportDialog({ ctx, onClose, onImported }: Props) {
         <div className="drop-actions">
           <label className="btn small primary">
             Selecionar arquivos / .ZIP
-            <input type="file" accept="audio/*,.zip" multiple hidden onChange={(e) => void addFiles(e.target.files)} />
+            <input
+              type="file"
+              accept="audio/*,.zip,.wav,.wave,.mp3,.m4a,.mp4,.aac,.ogg,.flac,.aif,.aiff,.wma,.alac,.caf,.opus,.webm,.weba"
+              multiple
+              hidden
+              onChange={(e) => void addFiles(e.target.files)}
+            />
           </label>
           <label className="btn small">
             Selecionar pasta da música

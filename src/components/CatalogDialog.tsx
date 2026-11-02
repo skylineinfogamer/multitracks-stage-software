@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from './Modal';
 import { masterCatalogService } from '../saas/MasterCatalogService';
+import { authService } from '../saas/AuthService';
 import type { CatalogSong, DownloadProgress } from '../saas/types';
 import type { Song } from '../types';
-import { SongRequestDialog } from './SongRequestDialog';
+import { TrackMappingDialog, type MappedTrackItem } from './TrackMappingDialog';
+import { guessTrack, uid } from '../music';
 
 interface Props {
   ctx: AudioContext;
@@ -32,9 +34,11 @@ export function CatalogDialog({
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
-  // Song Request Dialog State
-  const [showRequestModal, setShowRequestModal] = useState(false);
-  const [requestPrefill, setRequestPrefill] = useState('');
+  // Track Mapping Dialog State (Permite ao usuário nomear e gerenciar cada track antes de importar)
+  const [mappingSong, setMappingSong] = useState<CatalogSong | null>(null);
+  const [mappingTracks, setMappingTracks] = useState<MappedTrackItem[]>([]);
+  const [isFinalizingMapping, setIsFinalizingMapping] = useState(false);
+  const [mappingStatusText, setMappingStatusText] = useState('');
 
   useEffect(() => {
     return masterCatalogService.subscribe((updated) => {
@@ -53,14 +57,24 @@ export function CatalogDialog({
   const handleSyncCatalog = async () => {
     if (syncing) return;
     setSyncing(true);
-    setSyncStatus('🔄 Conectando ao servidor e sincronizando lista de MultiTracks…');
 
     try {
-      const res = await masterCatalogService.syncCatalogFromMasterCloud((msg) => {
-        setSyncStatus(msg);
-      });
-      setCatalog([...res.songs]);
-      setSyncStatus(`✅ Catálogo atualizado com sucesso! ${res.count} músicas disponíveis.`);
+      const currentUser = authService.getCurrentUser();
+      if (currentUser && currentUser.role !== 'admin') {
+        setSyncStatus('🔄 Sincronizando suas MultiTracks da sua nuvem pessoal…');
+        const res = await masterCatalogService.syncUserCatalog(currentUser.id, (msg) => {
+          setSyncStatus(msg);
+        });
+        setCatalog([...res.songs]);
+        setSyncStatus(`✅ Sincronizado com sucesso! ${res.count} MultiTrack(s) na sua conta.`);
+      } else {
+        setSyncStatus('🔄 Conectando ao servidor e sincronizando Catálogo Master…');
+        const res = await masterCatalogService.syncCatalogFromMasterCloud((msg) => {
+          setSyncStatus(msg);
+        });
+        setCatalog([...res.songs]);
+        setSyncStatus(`✅ Catálogo atualizado com sucesso! ${res.count} músicas disponíveis.`);
+      }
       setTimeout(() => {
         setSyncStatus(null);
       }, 4000);
@@ -79,21 +93,78 @@ export function CatalogDialog({
     setProgress({ statusText: `Preparando download de "${item.title}"…`, percent: 5 });
 
     try {
-      const imported = await masterCatalogService.downloadSongToRepertoire(item, ctx, (p) => {
+      // 1. Baixa o pacote completo e extrai todos os ficheiros de áudio brutos
+      const pkg = await masterCatalogService.downloadAndExtractSongPackage(item, (p) => {
         setProgress(p);
       });
-      onSongImported(imported);
-      setProgress({ statusText: `✅ "${imported.name}" adicionada ao Repertório!`, percent: 100 });
-      setTimeout(() => {
-        setDownloadingSongId(null);
-        setProgress(null);
-        onClose();
-      }, 900);
+
+      // 2. Mapeia 100% de todas as faixas sem descartar nenhuma, com nomes inteligentes preservados
+      const mappedItems: MappedTrackItem[] = pkg.audioFiles.map((f, i) => {
+        const g = guessTrack(f.fileName, i, item.title);
+        return {
+          id: uid('tr'),
+          fileName: f.fileName,
+          name: g.name,
+          suggestedName: g.name,
+          kind: g.kind,
+          bus: g.bus,
+          color: g.color,
+          included: true,
+          data: f.data,
+        };
+      });
+
+      // 3. Abre a tela para o usuário verificar, renomear e excluir o que desejar
+      setDownloadingSongId(null);
+      setProgress(null);
+      setMappingSong(item);
+      setMappingTracks(mappedItems);
     } catch (err) {
       setProgress({ statusText: `❌ Falha ao baixar: ${(err as Error).message}`, percent: 0, isError: true });
       setTimeout(() => {
         setDownloadingSongId(null);
       }, 3000);
+    }
+  };
+
+  const handleConfirmMapping = async (res: {
+    songTitle: string;
+    artist: string;
+    bpm: number;
+    musicKey: string;
+    tracks: MappedTrackItem[];
+  }) => {
+    if (!mappingSong) return;
+    setIsFinalizingMapping(true);
+    setMappingStatusText('Decodificando e salvando canais de áudio no projeto…');
+
+    try {
+      const updatedCatalogSong: CatalogSong = {
+        ...mappingSong,
+        title: res.songTitle,
+        artist: res.artist,
+        bpm: res.bpm,
+        key: res.musicKey,
+      };
+
+      const imported = await masterCatalogService.finalizeSongWithCustomTracks({
+        catalogSong: updatedCatalogSong,
+        customTracks: res.tracks,
+        ctx,
+        onProgress: (p) => {
+          setMappingStatusText(p.statusText);
+        },
+      });
+
+      onSongImported(imported);
+      setMappingSong(null);
+      setMappingTracks([]);
+      onClose();
+    } catch (err) {
+      alert(`Falha ao compilar canais: ${(err as Error).message}`);
+    } finally {
+      setIsFinalizingMapping(false);
+      setMappingStatusText('');
     }
   };
 
@@ -142,7 +213,7 @@ export function CatalogDialog({
           >
             <div style={{ minWidth: 240, flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span>Catálogo Oficial da Igreja</span>
+                <span>{isAdmin ? 'Catálogo Master B2' : 'Minhas MultiTracks na Nuvem'}</span>
                 <span
                   style={{
                     background: 'rgba(0, 153, 255, 0.25)',
@@ -158,32 +229,57 @@ export function CatalogDialog({
                 </span>
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
-                MultiTracks originais prontas com Click, Guia de contagem e canais isolados.
+                {isAdmin
+                  ? 'Repositório Master B2 Cloud com canais isolados.'
+                  : 'MultiTracks vinculadas à sua conta na nuvem e playlists.'}
               </div>
             </div>
 
-            {/* Sync Button & Request Button */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Sync Button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                  padding: '4px 10px',
+                  background: 'rgba(0, 153, 255, 0.15)',
+                  borderColor: 'rgba(0, 153, 255, 0.4)',
+                  borderWidth: 1,
+                  borderStyle: 'solid',
+                  borderRadius: 6,
+                  color: '#38bdf8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <span>⚡ Servidor: Backblaze B2</span>
+              </div>
+
               <button
-                className="btn small"
+                className="btn small primary"
                 disabled={syncing}
                 onClick={handleSyncCatalog}
                 style={{
-                  background: syncing ? 'rgba(0, 153, 255, 0.2)' : '#1e293b',
+                  background: syncing ? 'rgba(0, 153, 255, 0.2)' : '#0284c7',
                   borderColor: '#0099ff',
-                  color: '#38bdf8',
+                  color: '#ffffff',
                   fontWeight: 700,
                   fontSize: 12,
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
                 }}
-                title="Sincronizar e baixar lista atualizada de MultiTracks do servidor mestre"
+                title={isAdmin ? 'Sincronizar todo o repositório mestre B2' : 'Sincronizar as MultiTracks da sua pasta na nuvem'}
               >
                 <span style={{ display: 'inline-block', animation: syncing ? 'spin 1s linear infinite' : 'none' }}>
                   🔄
                 </span>
-                {syncing ? 'Sincronizando…' : 'Atualizar / Sincronizar'}
+                {syncing
+                  ? 'Sincronizando…'
+                  : isAdmin
+                  ? 'Sincronizar Master'
+                  : 'Sincronizar Minha Nuvem'}
               </button>
 
               {isAdmin && catalog.length > 0 && (
@@ -212,27 +308,6 @@ export function CatalogDialog({
                   <span>🗑️</span> Limpar Catálogo
                 </button>
               )}
-
-              <button
-                className="btn small primary"
-                style={{
-                  background: '#25D366',
-                  borderColor: '#25D366',
-                  color: '#ffffff',
-                  fontWeight: 700,
-                  fontSize: 12,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-                onClick={() => {
-                  setRequestPrefill(q);
-                  setShowRequestModal(true);
-                }}
-                title="Pedir uma música que não está no catálogo direto no WhatsApp do administrador"
-              >
-                <span>💬</span> Solicitar VS no Whats
-              </button>
             </div>
           </div>
 
@@ -354,36 +429,57 @@ export function CatalogDialog({
                   gap: 12,
                 }}
               >
-                <div style={{ fontSize: 36 }}>🔍</div>
+                <div style={{ fontSize: 36 }}>{catalog.length === 0 ? '☁️' : '🔍'}</div>
                 <div>
                   <strong style={{ fontSize: 15, color: '#f8fafc', display: 'block' }}>
-                    {q ? `Nenhuma MultiTrack encontrada para "${q}"` : 'Nenhuma música no catálogo com esses filtros'}
+                    {catalog.length === 0
+                      ? 'Nenhuma MultiTrack sincronizada ainda'
+                      : q
+                      ? `Nenhuma MultiTrack encontrada para "${q}"`
+                      : 'Nenhuma música no catálogo com esses filtros'}
                   </strong>
-                  <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0', maxWidth: 440 }}>
-                    Precisa dessa música para o culto deste fim de semana? Solicite agora mesmo e o pedido cairá diretamente no WhatsApp da administração!
+                  <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0', maxWidth: 460 }}>
+                    {catalog.length === 0
+                      ? 'O catálogo é 100% dinâmico e sincroniza os pacotes (.zip e .rar) diretamente da sua conta Backblaze B2 sem hardcoded ou arquivos estáticos.'
+                      : 'Precisa dessa música para o culto deste fim de semana? Solicite agora mesmo e o pedido cairá diretamente no WhatsApp da administração!'}
                   </p>
                 </div>
-                <button
-                  className="btn primary"
-                  style={{
-                    background: '#25D366',
-                    borderColor: '#25D366',
-                    color: '#ffffff',
-                    fontWeight: 700,
-                    fontSize: 13,
-                    padding: '8px 18px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    boxShadow: '0 0 16px rgba(37, 211, 102, 0.35)',
-                  }}
-                  onClick={() => {
-                    setRequestPrefill(q);
-                    setShowRequestModal(true);
-                  }}
-                >
-                  <span>💬</span> Solicitar "{q || 'Nova MultiTrack'}" no WhatsApp
-                </button>
+                {catalog.length === 0 ? (
+                  <button
+                    className="btn primary"
+                    disabled={syncing}
+                    onClick={handleSyncCatalog}
+                    style={{
+                      background: '#0099ff',
+                      borderColor: '#0099ff',
+                      color: '#ffffff',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      padding: '8px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      boxShadow: '0 0 16px rgba(0, 153, 255, 0.35)',
+                    }}
+                  >
+                    <span>🔄</span> {syncing ? 'Sincronizando com Backblaze B2…' : 'Sincronizar com Backblaze B2'}
+                  </button>
+                ) : (
+                  <button
+                    className="btn"
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: '8px 16px',
+                    }}
+                    onClick={() => {
+                      setQ('');
+                      setKeyFilter('ALL');
+                    }}
+                  >
+                    <span>🔍</span> Limpar busca e ver todas
+                  </button>
+                )}
               </div>
             ) : (
               <>
@@ -443,6 +539,20 @@ export function CatalogDialog({
                             <span className="bpm-pill" style={{ fontSize: 11, padding: '1px 6px' }}>
                               {item.bpm} BPM
                             </span>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                background: 'rgba(0, 153, 255, 0.15)',
+                                color: '#38bdf8',
+                                border: '1px solid rgba(0, 153, 255, 0.35)',
+                                borderRadius: 4,
+                                padding: '1px 5px',
+                                fontWeight: 800,
+                              }}
+                              title="Download de alta velocidade via Backblaze B2"
+                            >
+                              ⚡ B2 Cloud
+                            </span>
                           </div>
                           <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
                             {item.artist} · {Math.floor(item.durationSec / 60)}:
@@ -500,49 +610,29 @@ export function CatalogDialog({
                   );
                 })}
 
-                {/* Persistent Bottom Callout */}
-                <div
-                  style={{
-                    background: 'rgba(37, 211, 102, 0.08)',
-                    border: '1px solid rgba(37, 211, 102, 0.25)',
-                    borderRadius: 8,
-                    padding: '10px 14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginTop: 6,
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: '#e2e8f0' }}>
-                    💡 Não encontrou a música que sua igreja precisa?
-                  </div>
-                  <button
-                    className="btn small"
-                    style={{
-                      borderColor: '#25D366',
-                      color: '#25D366',
-                      fontWeight: 700,
-                      fontSize: 11.5,
-                    }}
-                    onClick={() => {
-                      setRequestPrefill(q);
-                      setShowRequestModal(true);
-                    }}
-                  >
-                    💬 Solicitar Nova MultiTrack
-                  </button>
-                </div>
               </>
             )}
           </div>
         </div>
       </Modal>
 
-      {/* WhatsApp Song Request Dialog */}
-      {showRequestModal && (
-        <SongRequestDialog
-          prefillTitle={requestPrefill}
-          onClose={() => setShowRequestModal(false)}
+      {/* Tela de Mapeamento, Edição de Nomes e Seleção de Canais */}
+      {mappingSong && mappingTracks.length > 0 && (
+        <TrackMappingDialog
+          songTitle={mappingSong.title}
+          artist={mappingSong.artist}
+          bpm={mappingSong.bpm}
+          musicKey={mappingSong.key}
+          tracks={mappingTracks}
+          isProcessing={isFinalizingMapping}
+          processingMessage={mappingStatusText}
+          onConfirm={handleConfirmMapping}
+          onClose={() => {
+            if (!isFinalizingMapping) {
+              setMappingSong(null);
+              setMappingTracks([]);
+            }
+          }}
         />
       )}
     </>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal } from './Modal';
 import { authService } from '../saas/AuthService';
 import { masterCatalogService } from '../saas/MasterCatalogService';
@@ -36,8 +36,23 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
 
   // Renewal checkout panel
   const [showRenewPanel, setShowRenewPanel] = useState(false);
-  const [renewPlan, setRenewPlan] = useState<'monthly' | 'annual'>('monthly');
+  const [renewPlan, setRenewPlan] = useState<string>('monthly');
+  const [availablePlans, setAvailablePlans] = useState(() => subscriptionService.getAllPlans());
   const [copiedLink, setCopiedLink] = useState(false);
+
+  useEffect(() => {
+    subscriptionService.fetchPlans().then((loaded) => {
+      if (loaded && loaded.length > 0) {
+        setAvailablePlans(loaded);
+        setRenewPlan((prev) => {
+          if (!loaded.some((p) => p.id === prev)) {
+            return loaded[0].id;
+          }
+          return prev;
+        });
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleLaunchCheckout = async () => {
     let url = '';
@@ -117,11 +132,13 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
     onLogout?.();
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
+    setErrorMsg(null);
+    setPassSuccess(null);
     try {
-      authService.changePassword(currentUser.id, newPass);
+      await authService.changePassword(currentUser.id, newPass);
       setPassSuccess('✅ Senha alterada com sucesso!');
       setNewPass('');
       setTimeout(() => {
@@ -407,58 +424,44 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
                 </div>
 
                 {/* Plan Choices */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <div
-                    onClick={() => setRenewPlan('monthly')}
-                    style={{
-                      background: renewPlan === 'monthly' ? '#161e2e' : '#111317',
-                      border: renewPlan === 'monthly' ? '2px solid #0099ff' : '1px solid #272a33',
-                      borderRadius: 6,
-                      padding: 8,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ fontSize: 12, color: renewPlan === 'monthly' ? '#38bdf8' : '#f1f5f9' }}>
-                        Worship Mensal
-                      </strong>
-                      <input
-                        type="radio"
-                        checked={renewPlan === 'monthly'}
-                        onChange={() => setRenewPlan('monthly')}
-                        style={{ accentColor: '#0099ff' }}
-                      />
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginTop: 4 }}>
-                      R$ 49,90<span style={{ fontSize: 10, fontWeight: 400, color: '#94a3b8' }}>/mês</span>
-                    </div>
-                  </div>
-
-                  <div
-                    onClick={() => setRenewPlan('annual')}
-                    style={{
-                      background: renewPlan === 'annual' ? '#161e2e' : '#111317',
-                      border: renewPlan === 'annual' ? '2px solid #0099ff' : '1px solid #272a33',
-                      borderRadius: 6,
-                      padding: 8,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ fontSize: 12, color: renewPlan === 'annual' ? '#38bdf8' : '#f1f5f9' }}>
-                        Pro Anual (2 meses off)
-                      </strong>
-                      <input
-                        type="radio"
-                        checked={renewPlan === 'annual'}
-                        onChange={() => setRenewPlan('annual')}
-                        style={{ accentColor: '#0099ff' }}
-                      />
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginTop: 4 }}>
-                      R$ 479,00<span style={{ fontSize: 10, fontWeight: 400, color: '#94a3b8' }}>/ano</span>
-                    </div>
-                  </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                  {availablePlans.map((p) => {
+                    const isSelected = renewPlan === p.id;
+                    const intervalText = p.interval === 'annual' || p.interval === 'year'
+                      ? '/ano'
+                      : p.interval === 'lifetime'
+                      ? ' (vitalício)'
+                      : '/mês';
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => setRenewPlan(p.id)}
+                        style={{
+                          background: isSelected ? '#161e2e' : '#111317',
+                          border: isSelected ? '2px solid #0099ff' : '1px solid #272a33',
+                          borderRadius: 6,
+                          padding: 8,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: 12, color: isSelected ? '#38bdf8' : '#f1f5f9' }}>
+                            {p.name}
+                          </strong>
+                          <input
+                            type="radio"
+                            checked={isSelected}
+                            onChange={() => setRenewPlan(p.id)}
+                            style={{ accentColor: '#0099ff' }}
+                          />
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginTop: 4 }}>
+                          R$ {p.priceBrl.toFixed(2).replace('.', ',')}
+                          <span style={{ fontSize: 10, fontWeight: 400, color: '#94a3b8' }}>{intervalText}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Direct Action Button for InfinitePay */}
@@ -615,6 +618,26 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
                 className="btn small"
                 style={{
                   flex: 1,
+                  background: '#10b981',
+                  color: '#fff',
+                  border: 'none',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '8px 12px',
+                }}
+                onClick={() => {
+                  onSuccess?.(pendingLoginNotice as User);
+                }}
+              >
+                ⚡ Escolher Plano e Ativar (InfinitePay)
+              </button>
+              <button
+                type="button"
+                className="btn small"
+                style={{
                   background: '#25D366',
                   color: '#fff',
                   border: 'none',
@@ -631,7 +654,7 @@ export function AuthDialog({ currentUser: propUser, onClose, onSuccess, onLogout
                   openExternalUrl(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`);
                 }}
               >
-                💬 Solicitar Liberação no WhatsApp
+                💬 WhatsApp
               </button>
               <button
                 type="button"

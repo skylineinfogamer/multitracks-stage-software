@@ -489,6 +489,98 @@ async function playBufferWithPackDsp(
  * 1. Downloaded / Cached Neural TTS AudioBuffer + SOLA Pitch/Formant DSP routed directly to Out 5 (Guide), or
  * 2. Native OS SpeechSynthesis ONLY if the user explicitly chose `system_native`.
  */
+let currentCueToken = 0;
+let isolatedPreviewCtx: AudioContext | null = null;
+let currentPreviewSource: AudioBufferSourceNode | null = null;
+
+export function cancelAllGuideSpeech() {
+  currentCueToken++;
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
+  }
+}
+
+/**
+ * Preview audio player isolated from main stage engine.
+ * Never touches engine.ctx or stage bus routing.
+ */
+export async function stopGuidePreview() {
+  if (currentPreviewSource) {
+    try {
+      currentPreviewSource.stop();
+      currentPreviewSource.disconnect();
+    } catch {}
+    currentPreviewSource = null;
+  }
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
+  }
+}
+
+export async function playIsolatedGuidePreview(
+  packId: string | undefined,
+  customVoiceName = '',
+  volume = 0.9,
+  customPitch = 1.0,
+  customRate = 1.12,
+  samplePhrase = 'Refrão',
+) {
+  await stopGuidePreview();
+
+  const pack = GUIDE_VOICE_PACKS.find((p) => p.id === packId) ?? GUIDE_VOICE_PACKS[0];
+  const spokenText = resolveSpokenText(samplePhrase, 'REFRAO', pack.lang);
+
+  if (!pack.useNativeSpeech && !customVoiceName) {
+    if (!isolatedPreviewCtx || isolatedPreviewCtx.state === 'closed') {
+      isolatedPreviewCtx = new AudioContext({ latencyHint: 'interactive' });
+    }
+    if (isolatedPreviewCtx.state === 'suspended') {
+      try {
+        await isolatedPreviewCtx.resume();
+      } catch {}
+    }
+
+    try {
+      const rawBuf = await getOrFetchBaseLangBuffer(isolatedPreviewCtx, pack.lang, spokenText);
+      if (rawBuf && isolatedPreviewCtx) {
+        const src = isolatedPreviewCtx.createBufferSource();
+        currentPreviewSource = src;
+        const g = isolatedPreviewCtx.createGain();
+        g.gain.value = volume;
+        const processed = processVoiceBufferSOLA(
+          isolatedPreviewCtx,
+          rawBuf,
+          pack.pitchSemitones * customPitch,
+          pack.tempoRate * customRate,
+        );
+        src.buffer = processed;
+        src.connect(g).connect(isolatedPreviewCtx.destination);
+        src.start();
+        src.onended = () => {
+          try {
+            src.disconnect();
+            g.disconnect();
+          } catch {}
+          if (currentPreviewSource === src) currentPreviewSource = null;
+        };
+        return;
+      }
+    } catch (e) {
+      console.warn('Fallback to native speech for preview:', e);
+    }
+  }
+
+  speakNativeFallback(spokenText, pack, customVoiceName, volume, customPitch, customRate);
+}
+
+/**
+ * Stage Live vocal guide cues.
+ * Features promise token invalidation to prevent ghost speech triggers.
+ */
 export function speakWithGuidePack(
   ctx: AudioContext,
   guideGainNode: AudioNode | undefined,
@@ -500,6 +592,7 @@ export function speakWithGuidePack(
   customPitch = 1.0,
   customRate = 1.12,
 ) {
+  const thisToken = ++currentCueToken;
   const pack = GUIDE_VOICE_PACKS.find((p) => p.id === packId) ?? GUIDE_VOICE_PACKS[0];
   const spokenText = resolveSpokenText(text, sectionType, pack.lang);
   const dest = guideGainNode ?? ctx.destination;
@@ -507,6 +600,8 @@ export function speakWithGuidePack(
   if (!pack.useNativeSpeech && !customVoiceName) {
     window.speechSynthesis?.cancel();
     void getOrFetchBaseLangBuffer(ctx, pack.lang, spokenText).then((rawBuf) => {
+      // Discard late promise if transport stopped or token changed
+      if (thisToken !== currentCueToken) return;
       if (rawBuf) {
         void playBufferWithPackDsp(ctx, dest, rawBuf, spokenText, pack, volume, customPitch, customRate);
       } else {

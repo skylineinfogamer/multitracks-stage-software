@@ -4,11 +4,21 @@ export type UserRole = 'admin' | 'user';
 
 export type UserApprovalStatus = 'pending' | 'active' | 'rejected';
 
-export type SubscriptionPlanId = 'monthly' | 'annual' | 'church_vip' | 'admin_vip';
+export type SubscriptionPlanId = 'monthly' | 'annual' | 'church_vip' | 'admin_vip' | (string & {});
 
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing' | 'unpaid';
 
 export type PaymentProvider = 'infinitepay' | 'manual';
+
+export interface DbPlan {
+  id: string;
+  name: string;
+  price: number; // em centavos (ex: 4990)
+  interval: string; // 'month', 'year', 'lifetime'
+  description?: string | null;
+  is_active: boolean;
+  created_at?: string;
+}
 
 export interface UserSubscription {
   planId: SubscriptionPlanId;
@@ -27,10 +37,12 @@ export interface PlanDetails {
   id: SubscriptionPlanId;
   name: string;
   priceBrl: number;
-  interval: 'monthly' | 'annual' | 'lifetime';
+  priceCents?: number;
+  interval: 'monthly' | 'annual' | 'lifetime' | 'month' | 'year';
   description: string;
-  features: string[];
+  features?: string[];
   badge?: string;
+  is_active?: boolean;
 }
 
 export interface PaymentGatewayConfig {
@@ -85,9 +97,12 @@ export interface CatalogSong {
   durationSec: number;
   cloudFolderId?: string;
   zipFileId?: string;
+  zipFileName?: string;
   zipDownloadUrl?: string;
+  gdriveDownloadUrl?: string;
+  b2DownloadUrl?: string;
   zipFileSize?: number;
-  provider: 'gdrive' | 'onedrive';
+  provider: 'gdrive' | 'onedrive' | 'b2' | 'backblaze';
   stems: CatalogStem[];
   tags?: string[];
   addedAt: string;
@@ -108,7 +123,14 @@ export interface GoogleServiceAccountKey {
 }
 
 export interface MasterCloudConfig {
-  provider: 'gdrive' | 'onedrive';
+  provider: 'gdrive' | 'onedrive' | 'b2' | 'backblaze';
+  activeStorageProvider?: 'b2' | 'gdrive';
+  b2BaseUrl?: string;
+  b2FallbackToGDrive?: boolean;
+  b2BucketName?: string;
+  b2BucketId?: string;
+  b2KeyId?: string;
+  b2ApplicationKey?: string;
   masterToken: string;
   rootFolderId: string;
   rootFolderName: string;

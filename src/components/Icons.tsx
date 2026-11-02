@@ -71,6 +71,17 @@ export const IconMidi = (p: P) => (
 export const IconRouting = (p: P) => (
   <svg {...base(p)}><circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="6" cy="18" r="2" /><circle cx="18" cy="18" r="2" /><path d="M8 6h8M8 18h8M6 8v8" /></svg>
 );
+export const IconWaveform = (p: P) => (
+  <svg {...base(p)}><path d="M2 12h2M6 8v8M10 4v16M14 7v10M18 5v14M22 12h-2" /></svg>
+);
+export const IconCloudDownload = (p: P) => (
+  <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </svg>
+);
+
 export const IconLogo = (p: P) => (
   <svg {...base(p)} viewBox="0 0 32 32" stroke="none">
     <rect width="32" height="32" rx="8" fill="#2f80ed" />

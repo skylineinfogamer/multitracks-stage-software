@@ -1,20 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import type { Section, Song, TransitionMode } from '../types';
 import type { User } from '../saas/types';
 import { SECTION_META, formatTime, transposeKey } from '../music';
 import {
   IconEdit,
-  IconFade,
   IconLibrary,
-  IconLoop,
   IconMidi,
-  IconNext,
-  IconPause,
-  IconPlay,
-  IconPrev,
   IconSettings,
   IconSparkles,
-  IconStop,
 } from './Icons';
 
 interface Props {
@@ -45,12 +39,12 @@ interface Props {
   editMode?: boolean;
   user?: User | null;
   onToggleEditMode?: () => void;
-  onPlay: () => void;
-  onStop: () => void;
-  onPrev: () => void;
-  onNext: () => void;
-  onFade: () => void;
-  onToggleLoop: () => void;
+  onPlay?: () => void;
+  onStop?: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  onFade?: () => void;
+  onToggleLoop?: () => void;
   onTogglePadQuick: () => void;
   onOpenPadDrawer?: () => void;
   onToggleFloatingPad?: () => void;
@@ -76,7 +70,21 @@ interface Props {
 }
 
 export function TopBar(p: Props) {
+  const [appVersion, setAppVersion] = useState('1.0.0');
   const [taps, setTaps] = useState<number[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    getVersion()
+      .then((v) => {
+        if (mounted && v) setAppVersion(v);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const bpm = p.song ? Math.round(p.song.bpm * p.rate * 10) / 10 : 0;
   const barLen = p.song ? (60 / p.song.bpm) * p.song.beatsPerBar : 1;
   const rel = p.song ? Math.max(0, p.pos - p.song.firstBeat) : 0;
@@ -102,6 +110,7 @@ export function TopBar(p: Props) {
 
   return (
     <header className="topbar">
+      {/* 1. LEFT: Brand & Live HUD Display */}
       <div className="brand">
         <img
           src="/worship-tools-logo.jpg"
@@ -117,63 +126,27 @@ export function TopBar(p: Props) {
           }}
         />
         <div>
-          <div className="brand-name">
-            WORSHIP<span>TOOLS</span>
+          <div className="brand-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>WORSHIP<span>TOOLS</span></span>
+            <span
+              style={{
+                fontSize: 9.5,
+                padding: '1px 5px',
+                borderRadius: 4,
+                backgroundColor: 'rgba(0, 153, 255, 0.15)',
+                border: '1px solid rgba(0, 153, 255, 0.35)',
+                color: '#38bdf8',
+                fontWeight: 700,
+                letterSpacing: '0.02em',
+                lineHeight: '13px',
+              }}
+              title="Versão do Worship Tools"
+            >
+              v{appVersion}
+            </span>
           </div>
           <div className="brand-sub">{p.setlistName}</div>
         </div>
-      </div>
-
-      <div className="transport">
-        <button className="tbtn" title="Música anterior (←)" onClick={p.onPrev}>
-          <IconPrev />
-        </button>
-        <button
-          className="tbtn"
-          title="Stop / Reset: 1 clique pausa · 2 cliques voltam ao início (Esc)"
-          onClick={p.onStop}
-        >
-          <IconStop />
-        </button>
-        <button className={`tbtn play ${p.playing ? 'on' : ''}`} title="Play / Pause (Espaço)" onClick={p.onPlay}>
-          {p.playing ? <IconPause size={26} /> : <IconPlay size={26} />}
-        </button>
-        <button className="tbtn" title="Próxima música (→)" onClick={p.onNext}>
-          <IconNext />
-        </button>
-        <button
-          className={`tbtn click-btn ${p.autonomousClick ? 'on' : ''}`}
-          title="Click Autônomo (C/K): Mantém o metrônomo batendo no compasso mesmo se o VS for pausado/parado"
-          onClick={p.onToggleAutonomousClick}
-          style={
-            p.autonomousClick
-              ? {
-                  background: '#F39C12',
-                  borderColor: '#F39C12',
-                  color: '#000',
-                  fontWeight: 800,
-                  boxShadow: '0 0 12px rgba(243, 156, 18, 0.55)',
-                }
-              : undefined
-          }
-        >
-          ⏱️
-        </button>
-        <button
-          className={`tbtn loop-btn ${p.looping ? 'on' : ''}`}
-          title="Loop da seção atual (L)"
-          onClick={p.onToggleLoop}
-        >
-          <IconLoop size={18} />
-        </button>
-        <button
-          className={`tbtn fade ${p.fading ? 'on' : ''}`}
-          title="Auto-Fade (F): Reduz as tracks musicais gradualmente mantendo Click e Guia tocando"
-          onClick={p.onFade}
-        >
-          <IconFade size={17} />
-          <span>FADE</span>
-        </button>
       </div>
 
       <div className="display">
@@ -214,80 +187,83 @@ export function TopBar(p: Props) {
         </div>
       </div>
 
-      <div className="info-boxes">
-        <div className="info tempo">
-          <label>BPM / TAP</label>
-          <div className="stepper">
-            <button onClick={() => p.onRate(p.rate - 0.01)} title="-1% velocidade">
-              −
-            </button>
-            <span onDoubleClick={() => p.onRate(1)} title="Duplo clique para 100%">
-              {bpm || '—'}
-            </span>
-            <button onClick={() => p.onRate(p.rate + 0.01)} title="+1% velocidade">
-              +
-            </button>
-            <button className="tap-pill" onClick={handleTap} title="Toque no ritmo para ajustar o BPM (Tap Tempo)">
-              TAP
-            </button>
+      {/* 2. CENTER: Studio Pitch Pro, BPM / TAP e Pads */}
+      <div className="top-center">
+        <div className="info-boxes">
+          <div className="info tempo">
+            <label>
+              TOM{' '}
+              {p.song && p.song.pitchOffset
+                ? `(${p.song.pitchOffset > 0 ? `+${p.song.pitchOffset}` : p.song.pitchOffset} st)`
+                : ''}
+              {p.song && p.song.pitchCents ? ` ${p.song.pitchCents > 0 ? `+${p.song.pitchCents}` : p.song.pitchCents}ct` : ''}
+            </label>
+            <div className="stepper">
+              <button onClick={() => p.onPitchOffset(-1)} title="Baixar 1 semitom (Tempo Real)">
+                −
+              </button>
+              <span
+                onClick={p.onOpenPitchPlugin}
+                onDoubleClick={() => p.song && p.onPitchOffset(-p.song.pitchOffset)}
+                title="Clique para abrir o Plugin Studio Pitch Pro · Duplo clique para tom original"
+                className="key-badge"
+                style={{ cursor: 'pointer' }}
+              >
+                {effectiveKey}
+              </span>
+              <button onClick={() => p.onPitchOffset(1)} title="Subir 1 semitom (Tempo Real)">
+                +
+              </button>
+              <button
+                className={`tap-pill ${p.song && ((p.song.pitchOffset ?? 0) !== 0 || (p.song.pitchCents ?? 0) !== 0) ? 'pitch-active' : ''}`}
+                onClick={p.onOpenPitchPlugin}
+                title="Abrir Plugin Profissional Studio Pitch Pro (Semitons, Cents 432/440Hz, Formantes e Bypass de Bateria)"
+              >
+                PITCH
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div className="info tempo">
-          <label>
-            TOM{' '}
-            {p.song && p.song.pitchOffset
-              ? `(${p.song.pitchOffset > 0 ? `+${p.song.pitchOffset}` : p.song.pitchOffset} st)`
-              : ''}
-            {p.song && p.song.pitchCents ? ` ${p.song.pitchCents > 0 ? `+${p.song.pitchCents}` : p.song.pitchCents}ct` : ''}
-          </label>
-          <div className="stepper">
-            <button onClick={() => p.onPitchOffset(-1)} title="Baixar 1 semitom (Tempo Real)">
-              −
-            </button>
-            <span
-              onClick={p.onOpenPitchPlugin}
-              onDoubleClick={() => p.song && p.onPitchOffset(-p.song.pitchOffset)}
-              title="Clique para abrir o Plugin Studio Pitch Pro · Duplo clique para tom original"
-              className="key-badge"
-              style={{ cursor: 'pointer' }}
+          <div className="info tempo">
+            <label>BPM / TAP</label>
+            <div className="stepper">
+              <button onClick={() => p.onRate(p.rate - 0.01)} title="-1% velocidade">
+                −
+              </button>
+              <span onDoubleClick={() => p.onRate(1)} title="Duplo clique para 100%">
+                {bpm || '—'}
+              </span>
+              <button onClick={() => p.onRate(p.rate + 0.01)} title="+1% velocidade">
+                +
+              </button>
+              <button className="tap-pill" onClick={handleTap} title="Toque no ritmo para ajustar o BPM (Tap Tempo)">
+                TAP
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              className={`pad-pill ${p.padKey ? 'on' : ''}`}
+              onClick={p.onTogglePadQuick}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                p.onOpenPadDrawer?.();
+              }}
+              title="Clique: Disparar/Parar Pad no tom · Botão direito: Abrir Drawer de Pad Player"
             >
-              {effectiveKey}
-            </span>
-            <button onClick={() => p.onPitchOffset(1)} title="Subir 1 semitom (Tempo Real)">
-              +
+              <span className="dot" />
+              PAD {p.padKey ?? effectiveKey}
             </button>
             <button
-              className={`tap-pill ${p.song && ((p.song.pitchOffset ?? 0) !== 0 || (p.song.pitchCents ?? 0) !== 0) ? 'pitch-active' : ''}`}
-              onClick={p.onOpenPitchPlugin}
-              title="Abrir Plugin Profissional Studio Pitch Pro (Semitons, Cents 432/440Hz, Formantes e Bypass de Bateria)"
+              className="top-action-btn"
+              style={{ padding: '0 8px' }}
+              onClick={p.onToggleFloatingPad}
+              title="Soltar Janela Flutuante de Pads (Sempre Visível)"
             >
-              PITCH
+              <span>🪟</span>
             </button>
           </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button
-            className={`pad-pill ${p.padKey ? 'on' : ''}`}
-            onClick={p.onTogglePadQuick}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              p.onOpenPadDrawer?.();
-            }}
-            title="Clique: Disparar/Parar Pad no tom · Botão direito: Abrir Drawer de Pad Player"
-          >
-            <span className="dot" />
-            PAD {p.padKey ?? effectiveKey}
-          </button>
-          <button
-            className="top-action-btn"
-            style={{ padding: '0 8px' }}
-            onClick={p.onToggleFloatingPad}
-            title="Soltar Janela Flutuante de Pads (Sempre Visível)"
-          >
-            <span>🪟</span>
-          </button>
         </div>
       </div>
 
@@ -297,12 +273,6 @@ export function TopBar(p: Props) {
             className="top-action-btn admin-btn"
             title="Painel do Administrador: Conectar Google Drive/OneDrive Master e Gerenciar Músicas"
             onClick={p.onOpenAdmin}
-            style={{
-              background: 'rgba(245, 158, 11, 0.18)',
-              borderColor: '#F59E0B',
-              color: '#FBBF24',
-              fontWeight: 700,
-            }}
           >
             <span>👑 ADMIN</span>
           </button>
@@ -312,7 +282,6 @@ export function TopBar(p: Props) {
           className="top-action-btn primary-action"
           title="Catálogo Oficial de MultiTracks (Nuvem Centralizada SaaS)"
           onClick={p.onOpenCatalog}
-          style={{ background: '#0099FF', color: '#fff', fontWeight: 700, boxShadow: '0 0 12px rgba(0, 153, 255, 0.35)' }}
         >
           <span>🎵 CATÁLOGO</span>
         </button>
@@ -321,7 +290,6 @@ export function TopBar(p: Props) {
           className="top-action-btn"
           title="Importar MultiTrack / VS localmente (.ZIP, WAV, MP3) do seu computador"
           onClick={p.onImport}
-          style={{ background: '#1F2430', color: '#E2E8F0', fontWeight: 600 }}
         >
           <span>➕ IMPORTAR</span>
         </button>

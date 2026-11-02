@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "0.1.0"
+version = "1.0.1"
 description = "Worship Playback Pro"
 authors = ["you"]
 edition = "2024"
@@ -25,7 +25,7 @@ qrcode = "0.14.1"
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 
 [profile.release]
 codegen-units = 1

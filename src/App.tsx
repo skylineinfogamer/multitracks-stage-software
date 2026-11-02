@@ -42,6 +42,7 @@ import { SetlistStrip } from './components/SetlistStrip';
 import { Timeline } from './components/Timeline';
 import { SectionGrid } from './components/SectionGrid';
 import { Mixer } from './components/Mixer';
+import { TransportControls } from './components/TransportControls';
 import { FloatingPadWindow, PadPanel } from './components/PadPanel';
 import { ImportDialog } from './components/ImportDialog';
 import { SettingsDialog } from './components/SettingsDialog';
@@ -56,11 +57,14 @@ import { AdminPanelDialog } from './components/AdminPanelDialog';
 import { RemoteControlDialog } from './components/RemoteControlDialog';
 import { SubscriptionGuardModal } from './components/SubscriptionGuardModal';
 import { UpdateDialog } from './components/UpdateDialog';
+import { WaveformTimelineEditor } from './components/WaveformTimelineEditor';
+import { SyncWebModal } from './components/SyncWebModal';
 import { useAutoUpdater } from './hooks/useAutoUpdater';
 import { remoteControlService } from './services/remoteControlService';
-import { authService } from './saas/AuthService';
+import { authService, type WebPlaylistItem, type WebPlaylist } from './saas/AuthService';
+import { masterCatalogService, DEFAULT_B2_BASE_URL } from './saas/MasterCatalogService';
 import { subscriptionService } from './saas/SubscriptionService';
-import type { User } from './saas/types';
+import type { CatalogSong, DownloadProgress, User } from './saas/types';
 import { KEYS, ensureUtilityTracks, inferTrackBus, isTrackPitched, transposeKey, uid } from './music';
 import { isCombinedClickGuide, isDualChannelClickGuide, splitStereoClickGuide } from './audio/audioSeparation';
 
@@ -170,6 +174,8 @@ export default function App() {
     | 'admin-panel'
     | 'auth'
     | 'remote'
+    | 'waveform'
+    | 'sync-web'
   >(null);
   const [remoteClientsCount, setRemoteClientsCount] = useState(0);
   const [autonomousClick, setAutonomousClick] = useState<boolean>(() => {
@@ -182,6 +188,7 @@ export default function App() {
   const [autonomousBeat, setAutonomousBeat] = useState(1);
   const [user, setUser] = useState<User | null>(() => authService.getCurrentUser());
   const [subscriptionVersion, setSubscriptionVersion] = useState(0);
+  const [syncWebPlaylists, setSyncWebPlaylists] = useState<WebPlaylist[]>([]);
 
   useEffect(() => {
     const unsub = subscriptionService.onSubscriptionUpdate(() => {
@@ -339,11 +346,10 @@ export default function App() {
 
   useEffect(() => {
     engine.setAsioConfig(
-      settings.audioDriverType || 'ASIO',
-      settings.asioDriverName || 'ASIO4ALL v2',
+      settings.audioDriverType || 'WASAPI',
+      settings.asioDriverName || 'WASAPI Nativo',
       settings.asioBufferSize || 128,
       settings.asioSampleRate || 48000,
-      settings.asioOutputMapping,
     );
     setHwStats(engine.getHardwareStats());
   }, [
@@ -352,7 +358,6 @@ export default function App() {
     settings.asioDriverName,
     settings.asioBufferSize,
     settings.asioSampleRate,
-    settings.asioOutputMapping,
   ]);
 
   const updateSong = useCallback((id: string, patch: Partial<Song> | ((s: Song) => Partial<Song>)) => {
@@ -1368,8 +1373,49 @@ export default function App() {
     setCurrentId(null);
   }, [engine]);
 
+  const syncWebSetlists = useCallback(async () => {
+    if (!user) {
+      alert('Faça login na sua conta para sincronizar as setlists da Web.');
+      setDialog('auth');
+      return;
+    }
+    try {
+      const webPlaylists = await authService.getWebPlaylists(user.id);
+      if (webPlaylists.length === 0) {
+        alert('Nenhuma setlist com multitracks encontrada no painel Web.');
+        return;
+      }
+      // Armazena as playlists e abre o modal de sincronização com progresso visual
+      setSyncWebPlaylists(webPlaylists);
+      setDialog('sync-web');
+    } catch (e) {
+      console.error('[Sync] Erro ao buscar playlists da Web:', e);
+      alert('Falha ao buscar playlists da Web.');
+    }
+  }, [user]);
+
   const updateSetlist = (id: string, patch: Partial<Setlist>) =>
     setSetlists((l) => l.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+
+  // Handler chamado quando o SyncWebModal termina
+  const handleSyncComplete = useCallback((syncedCount: number, downloadedCount: number) => {
+    // Atualiza as setlists locais com os IDs das playlists sincronizadas
+    // O SyncWebModal já fez o download das músicas, agora só criamos/atualizamos as setlists
+    authService.getWebPlaylists(user?.id || '').then((webPlaylists) => {
+      for (const wp of webPlaylists) {
+        const exists = setlists.some((sl) => sl.id === wp.id);
+        const songIds = wp.items.map((i) => i.id);
+        if (!exists) {
+          setSetlists((prev) => [...prev, { id: wp.id, name: wp.name, songIds }]);
+        } else {
+          updateSetlist(wp.id, { name: wp.name, songIds });
+        }
+      }
+      alert(`${syncedCount} setlist(s) sincronizada(s)! ${downloadedCount} música(s) baixada(s).`);
+    }).catch((e) => {
+      console.error('[SyncWeb] Erro ao atualizar setlists:', e);
+    });
+  }, [user, setlists]);
 
   const addSongToSetlist = (songId: string) => {
     if (!setlist) return;
@@ -1412,6 +1458,12 @@ export default function App() {
     setDialog(null);
     void loadSong(s.id, false, true, s);
   };
+
+  // Handler chamado pelo SyncWebModal quando a importação de uma música é concluída
+  const handleSyncSongImported = useCallback((importedSong: Song, originalItemId?: string) => {
+    onImported(importedSong);
+    console.log('[SyncWeb] Música importada e carregada:', importedSong.name);
+  }, [onImported]);
 
   /** Clicking a Setlist card loads it */
   const handleSelectSetlistSong = (id: string) => {
@@ -1819,6 +1871,7 @@ export default function App() {
               onTransitionMode={(m) => setSettings((s) => ({ ...s, transitionMode: m }))}
               onToggleChords={() => setShowChords((x) => !x)}
               onEdit={() => setDialog('edit')}
+              onOpenWaveform={() => setDialog('waveform')}
               onOpenAi={() => setDialog('ai')}
             />
           </>
@@ -1847,23 +1900,40 @@ export default function App() {
 
       <section className="bottom">
         <div className="bottom-tabs">
-          <button className={bottomTab === 'mixer' ? 'active' : ''} onClick={() => setBottomTab('mixer')}>
-            TRACKS MIXER ({song?.tracks.length ?? 0})
-          </button>
-          <button className={bottomTab === 'buses' ? 'active' : ''} onClick={() => setBottomTab('buses')}>
-            BUS MIXER (SUBGRUPOS)
-          </button>
-          <button className={bottomTab === 'pads' ? 'active' : ''} onClick={() => setBottomTab('pads')}>
-            AMBIENT PADS {padKey && <span className="dot-live" />}
-          </button>
-          <button
-            className="pitch-tab-btn"
-            onClick={() => setDialog('pitch')}
-            title="Abrir Plugin Studio Pitch Pro (Mudança de Tom em Tempo Real, Formantes, Cents e Bypass de Bateria)"
-          >
-            🎛️ STUDIO PITCH PRO {song && (song.pitchOffset ?? 0) !== 0 ? `(${song.pitchOffset! > 0 ? `+${song.pitchOffset}` : song.pitchOffset} st)` : ''}
-          </button>
+          <div className="bottom-tabs-left">
+            <button className={bottomTab === 'mixer' ? 'active' : ''} onClick={() => setBottomTab('mixer')}>
+              TRACKS MIXER ({song?.tracks.length ?? 0})
+            </button>
+            <button className={bottomTab === 'buses' ? 'active' : ''} onClick={() => setBottomTab('buses')}>
+              BUS MIXER (SUBGRUPOS)
+            </button>
+            <button className={bottomTab === 'pads' ? 'active' : ''} onClick={() => setBottomTab('pads')}>
+              AMBIENT PADS {padKey && <span className="dot-live" />}
+            </button>
+          </div>
+          <div className="bottom-transport">
+            <TransportControls
+              playing={playing}
+              fading={fading}
+              looping={!!loopSectionId}
+              autonomousClick={autonomousClick}
+              onPlay={togglePlay}
+              onStop={stop}
+              onPrev={() => gotoSong(-1)}
+              onNext={() => gotoSong(1)}
+              onFade={fade}
+              onToggleLoop={() => toggleCurrentLoop('infinite')}
+              onToggleAutonomousClick={toggleAutonomousClick}
+            />
+          </div>
           <div className="bottom-tabs-right">
+            <button
+              className="pitch-tab-btn"
+              onClick={() => setDialog('pitch')}
+              title="Abrir Plugin Studio Pitch Pro (Mudança de Tom em Tempo Real, Formantes, Cents e Bypass de Bateria)"
+            >
+              🎛️ STUDIO PITCH PRO {song && (song.pitchOffset ?? 0) !== 0 ? `(${song.pitchOffset! > 0 ? `+${song.pitchOffset}` : song.pitchOffset} st)` : ''}
+            </button>
             <span className="routing-hint">
               {settings.useDualAudioDevices
                 ? `🎧 Modo 2 Placas: USB (Tracks FOH Ch 1/2) + Notebook (Guia Ch 3 / Click Ch 4) · 100% Isolado`
@@ -2163,6 +2233,7 @@ export default function App() {
               else unloadActiveSong();
             }
           }}
+          onSyncWebSetlists={syncWebSetlists}
         />
       )}
 
@@ -2170,6 +2241,24 @@ export default function App() {
         <RemoteControlDialog
           onClose={() => setDialog(null)}
           connectedClients={remoteClientsCount}
+        />
+      )}
+      {dialog === 'waveform' && song && (
+        <WaveformTimelineEditor
+          song={song}
+          engine={engine}
+          onSave={(updated) => updateSong(song.id, updated)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === 'sync-web' && (
+        <SyncWebModal
+          webPlaylists={syncWebPlaylists}
+          localSongs={songs.map((s) => ({ id: s.id, name: s.name }))}
+          ctx={engine.ctx}
+          onSongImported={handleSyncSongImported}
+          onComplete={handleSyncComplete}
+          onClose={() => setDialog(null)}
         />
       )}
 

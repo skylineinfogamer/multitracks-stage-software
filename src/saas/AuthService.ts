@@ -15,51 +15,27 @@ const LS_SESSION_KEY = 'wpp_saas_session_v1';
 const LS_USER_SYNC_PREFIX = 'wpp_saas_sync_';
 
 interface StoredUserRecord extends User {
-  passwordHash: string; // Base64 or hash for local testing/JWT
+  passwordHash: string;
 }
 
-const DEFAULT_USERS: StoredUserRecord[] = [
-  {
-    id: 'usr_admin',
-    name: 'Administradora (multitracks-pro)',
-    email: 'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com',
-    passwordHash: btoa('admin123'),
-    role: 'admin',
-    status: 'active',
-    churchName: 'MultiTracks Pro Cloud (Service Account)',
-    createdAt: new Date().toISOString(),
-    subscription: {
-      planId: 'admin_vip',
-      planName: 'Acesso Master Administradora',
-      status: 'active',
-      provider: 'manual',
-      currentPeriodEnd: '2099-12-31T23:59:59.000Z',
-      priceBrl: 0,
-      billingCycle: 'lifetime',
-      lastPaymentDate: new Date().toISOString(),
-    },
-  },
-  {
-    id: 'usr_admin_alias',
-    name: 'Administradora do Catálogo',
-    email: 'admin@playback.pro',
-    passwordHash: btoa('admin123'),
-    role: 'admin',
-    status: 'active',
-    churchName: 'Sede Central',
-    createdAt: new Date().toISOString(),
-    subscription: {
-      planId: 'admin_vip',
-      planName: 'Acesso Master Administradora',
-      status: 'active',
-      provider: 'manual',
-      currentPeriodEnd: '2099-12-31T23:59:59.000Z',
-      priceBrl: 0,
-      billingCycle: 'lifetime',
-      lastPaymentDate: new Date().toISOString(),
-    },
-  },
-];
+const DEFAULT_USERS: StoredUserRecord[] = [];
+
+export interface WebPlaylistItem {
+  id: string;
+  titulo: string;
+  artista?: string;
+  bpm?: string;
+  tom?: string;
+  compasso?: string;
+  b2_file_key?: string;
+}
+
+export interface WebPlaylist {
+  id: string;
+  name: string;
+  items: WebPlaylistItem[];
+  updatedAt?: string;
+}
 
 class AuthService {
   private users: StoredUserRecord[] = [];
@@ -81,55 +57,31 @@ class AuthService {
         this.saveUsers();
       }
 
-      // Purge legacy mock users (e.g. usr_musico) and ensure ONLY the 2 master accounts can be admin
+      // Purge legacy mock users and ensure ONLY master accounts from Supabase can be admin
       const initialLen = this.users.length;
       this.users = this.users.filter((u) => u.id !== 'usr_musico' && u.email.toLowerCase() !== 'musico@igreja.com');
       let modified = this.users.length !== initialLen;
 
       for (const u of this.users) {
         const email = u.email.toLowerCase().trim();
-        const isMaster =
-          email === 'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com' ||
-          email === 'admin@playback.pro' ||
-          u.id === 'usr_admin' ||
-          u.id === 'usr_admin_alias';
+        // Admin status is now determined exclusively by Supabase profiles table
+        // Local users cannot be admin unless synced from cloud
 
-        if (!isMaster && u.role === 'admin') {
-          u.role = 'user';
-          modified = true;
-        }
         if (!u.status) {
-          u.status = u.role === 'admin' ? 'active' : 'active';
+          u.status = 'active';
           modified = true;
         }
         if (!u.subscription) {
-          if (u.role === 'admin') {
-            u.subscription = {
-              planId: 'admin_vip',
-              planName: 'Acesso Master Administradora',
-              status: 'active',
-              provider: 'manual',
-              currentPeriodEnd: '2099-12-31T23:59:59.000Z',
-              priceBrl: 0,
-              billingCycle: 'lifetime',
-              lastPaymentDate: new Date().toISOString(),
-            };
-          } else {
-            u.subscription = {
-              planId: 'monthly',
-              planName: 'Plano Worship Mensal',
-              status: 'active',
-              provider: 'infinitepay',
-              currentPeriodEnd: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(),
-              priceBrl: 49.90,
-              billingCycle: 'monthly',
-              lastPaymentDate: new Date().toISOString(),
-            };
-          }
-          modified = true;
-        } else if (u.role === 'admin' && u.subscription.status !== 'active') {
-          u.subscription.status = 'active';
-          u.subscription.planId = 'admin_vip';
+          u.subscription = {
+            planId: 'monthly',
+            planName: 'Plano Worship Mensal',
+            status: 'active',
+            provider: 'infinitepay',
+            currentPeriodEnd: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(),
+            priceBrl: 49.90,
+            billingCycle: 'monthly',
+            lastPaymentDate: new Date().toISOString(),
+          };
           modified = true;
         }
       }
@@ -164,8 +116,6 @@ class AuthService {
    * Validates active session directly in the cloud (profiles table) to prevent cached bypass.
    */
   private async validateSessionOnCloud(userId: string) {
-    if (userId === 'usr_admin' || userId === 'usr_admin_alias') return;
-
     try {
       const { data: profile, error } = await supabase
         .from('profiles')
@@ -219,11 +169,8 @@ class AuthService {
     }
 
     const email = sbUser.email || '';
-    const isAdminEmail =
-      email.toLowerCase() === 'admin@playback.pro' ||
-      email.toLowerCase() === 'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com';
-
-    const role: UserRole = isAdminEmail ? 'admin' : 'user';
+    // Role comes from Supabase profiles table (source of truth)
+    const role: UserRole = (profile?.role || 'user') as UserRole;
     const status: UserApprovalStatus =
       role === 'admin'
         ? 'active'
@@ -246,7 +193,7 @@ class AuthService {
       name,
       email,
       role,
-      status: 'active',
+      status: role === 'admin' ? 'active' : status,
       churchName,
       createdAt: profile?.created_at || sbUser.created_at || new Date().toISOString(),
       subscription:
@@ -262,11 +209,11 @@ class AuthService {
               lastPaymentDate: new Date().toISOString(),
             }
           : {
-              planId: 'monthly',
-              planName: 'Plano Worship Mensal',
-              status: 'active',
+              planId: profile?.plan_id || 'monthly',
+              planName: profile?.plan_name || 'Plano Worship Mensal',
+              status: status === 'active' ? 'active' : 'unpaid',
               provider: 'infinitepay',
-              currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+              currentPeriodEnd: profile?.subscription_expires_at || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
               priceBrl: 49.90,
               billingCycle: 'monthly',
               lastPaymentDate: new Date().toISOString(),
@@ -413,16 +360,28 @@ class AuthService {
         const newStatus = (profile.status || currentUser.status) as UserApprovalStatus;
         const newRole = (profile.role || currentUser.role) as UserRole;
 
-        if (newRole !== 'admin' && (newStatus === 'pending' || newStatus === 'rejected')) {
+        if (newRole !== 'admin' && newStatus === 'rejected') {
           await this.logout();
           return null;
         }
+
+        const updatedSub: UserSubscription = {
+          planId: profile.plan_id || currentUser.subscription?.planId || 'assinatura_app',
+          planName: profile.plan_name || currentUser.subscription?.planName || 'Assinatura app WorshipTools mensal',
+          status: newStatus === 'active' ? 'active' : 'unpaid',
+          provider: 'infinitepay',
+          currentPeriodEnd: profile.subscription_expires_at || currentUser.subscription?.currentPeriodEnd || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          priceBrl: currentUser.subscription?.priceBrl || 49.90,
+          billingCycle: 'monthly',
+          lastPaymentDate: new Date().toISOString(),
+        };
 
         const updated = this.updateUser(currentUser.id, {
           status: newStatus,
           role: newRole,
           name: profile.name || currentUser.name,
           churchName: profile.church_name || currentUser.churchName,
+          subscription: updatedSub,
         });
         return updated;
       }
@@ -480,11 +439,8 @@ class AuthService {
         console.warn('[AuthService] Falha na consulta de profiles:', err);
       }
 
-      const isAdminEmail =
-        cleanEmail === 'admin@playback.pro' ||
-        cleanEmail === 'servidor-vs-backend@multitracks-pro.iam.gserviceaccount.com';
-
-      const role: UserRole = isAdminEmail ? 'admin' : 'user';
+      // Role comes from Supabase profiles table (source of truth)
+      const role: UserRole = (profile?.role || 'user') as UserRole;
       const status: UserApprovalStatus =
         role === 'admin'
           ? 'active'
@@ -514,12 +470,16 @@ class AuthService {
       }
 
       // Assemble authenticated user (pending users will have status: 'pending' so guard modal presents checkout)
+      const userPlanId = profile?.plan_id || 'assinatura_app';
+      const userPlanName = profile?.plan_name || 'Assinatura app WorshipTools mensal';
+      const isUserActive = status === 'active';
+
       const activeUser: User = {
         id: authUser.id,
         name: userName,
         email: cleanEmail,
         role,
-        status: status === 'pending' ? 'pending' : 'active',
+        status: role === 'admin' ? 'active' : status,
         churchName: userChurch,
         createdAt: profile?.created_at || authUser.created_at || new Date().toISOString(),
         subscription:
@@ -535,11 +495,11 @@ class AuthService {
                 lastPaymentDate: new Date().toISOString(),
               }
             : {
-                planId: 'monthly',
-                planName: 'Plano Worship Mensal',
-                status: 'active',
+                planId: userPlanId,
+                planName: userPlanName,
+                status: isUserActive ? 'active' : 'unpaid',
                 provider: 'infinitepay',
-                currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                currentPeriodEnd: profile?.subscription_expires_at || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
                 priceBrl: 49.90,
                 billingCycle: 'monthly',
                 lastPaymentDate: new Date().toISOString(),
@@ -794,15 +754,143 @@ class AuthService {
     }
   }
 
-  changePassword(userId: string, newPass: string): void {
+    async changePassword(userId: string, newPass: string): Promise<void> {
     const cleanPass = newPass.trim();
-    if (cleanPass.length < 4) {
-      throw new Error('A nova senha deve ter no mínimo 4 caracteres.');
+    if (cleanPass.length < 6) {
+      throw new Error('A nova senha deve ter no mínimo 6 caracteres.');
+    }
+    try {
+      const { error } = await supabase.auth.updateUser({ password: cleanPass });
+      if (error) throw error;
+    } catch (e: any) {
+      console.warn('Erro ao atualizar senha no Supabase:', e);
+      throw new Error(e.message || 'Erro ao atualizar senha no Supabase.');
     }
     const idx = this.users.findIndex((u) => u.id === userId);
-    if (idx === -1) throw new Error('Usuário não encontrado.');
-    this.users[idx].passwordHash = btoa(cleanPass);
-    this.saveUsers();
+    if (idx !== -1) {
+      this.users[idx].passwordHash = btoa(cleanPass);
+      this.saveUsers();
+    }
+  }
+
+  async syncPlaylistsToSupabase(userId: string, setlists: Setlist[], songs: Song[]): Promise<void> {
+    try {
+      // Primeiro, carrega o estado atual do Supabase para preservar b2_file_keys criados na web
+      const { data: existingRows } = await supabase
+        .from('playlists')
+        .select('*')
+        .eq('user_id', userId);
+
+      const existingMap = new Map<string, any[]>();
+      if (existingRows) {
+        for (const row of existingRows) {
+          existingMap.set(row.id, Array.isArray(row.items) ? row.items : []);
+        }
+      }
+
+      for (const setlist of setlists) {
+        const oldItems = existingMap.get(setlist.id) || [];
+        const oldItemMap = new Map<string, any>();
+        for (const oi of oldItems) {
+          if (oi && oi.id) {
+            oldItemMap.set(String(oi.id), oi);
+          }
+        }
+
+        const items = setlist.songIds.map(sid => {
+          const s = songs.find(x => x.id === sid);
+          const oldItem = oldItemMap.get(sid);
+          return {
+            id: sid,
+            titulo: s?.name || oldItem?.titulo || 'Sem título',
+            artista: s?.artist || oldItem?.artista || '',
+            bpm: String(s?.bpm || oldItem?.bpm || 120),
+            tom: s?.key || oldItem?.tom || 'G',
+            compasso: `${s?.beatsPerBar || 4}/4`,
+            b2_file_key: oldItem?.b2_file_key || '',
+          };
+        });
+
+        await supabase.from('playlists').upsert({
+          id: setlist.id,
+          user_id: userId,
+          nome: setlist.name,
+          items,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' });
+      }
+    } catch (e) {
+      console.warn('[AuthService] Erro ao sincronizar playlists:', e);
+    }
+  }
+
+  async loadPlaylistsFromSupabase(userId: string): Promise<{
+    setlists: Setlist[];
+    rawPlaylists: WebPlaylist[];
+    catalogHints: { titulo: string; artista: string; b2_file_key: string }[];
+  }> {
+    try {
+      const { data, error } = await supabase
+        .from('playlists')
+        .select('*')
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false });
+
+      if (error || !data) return { setlists: [], rawPlaylists: [], catalogHints: [] };
+
+      const setlists: Setlist[] = [];
+      const rawPlaylists: WebPlaylist[] = [];
+      const catalogHints: { titulo: string; artista: string; b2_file_key: string }[] = [];
+
+      for (const row of data) {
+        const items = Array.isArray(row.items) ? row.items : [];
+        const mappedItems: WebPlaylistItem[] = items.map((i: any) => ({
+          id: String(i.id || ''),
+          titulo: i.titulo || 'Sem título',
+          artista: i.artista || '',
+          bpm: i.bpm ? String(i.bpm) : '120',
+          tom: i.tom || 'G',
+          compasso: i.compasso || '4/4',
+          b2_file_key: i.b2_file_key || '',
+        }));
+
+        setlists.push({
+          id: row.id,
+          name: row.nome || 'Sem nome',
+          songIds: mappedItems.map((i) => i.id),
+        });
+
+        rawPlaylists.push({
+          id: row.id,
+          name: row.nome || 'Sem nome',
+          items: mappedItems,
+          updatedAt: row.updated_at || row.created_at,
+        });
+
+        for (const item of mappedItems) {
+          if (item.b2_file_key) {
+            catalogHints.push({
+              titulo: item.titulo,
+              artista: item.artista || '',
+              b2_file_key: item.b2_file_key,
+            });
+          }
+        }
+      }
+
+      return { setlists, rawPlaylists, catalogHints };
+    } catch (e) {
+      console.warn('[AuthService] Erro ao carregar playlists:', e);
+      return { setlists: [], rawPlaylists: [], catalogHints: [] };
+    }
+  }
+
+  /** Carrega playlists criadas na web (com b2_file_key) para exibição no app desktop */
+  async getWebPlaylists(userId: string): Promise<WebPlaylist[]> {
+    const { rawPlaylists } = await this.loadPlaylistsFromSupabase(userId);
+    return rawPlaylists.filter((pl) =>
+      pl.items.some((item) => item.b2_file_key && item.b2_file_key.trim() !== '')
+    );
   }
 
   async logout() {
@@ -847,6 +935,9 @@ class AuthService {
     } catch {
       /* quota */
     }
+
+    // Sync playlists to Supabase (non-blocking)
+    this.syncPlaylistsToSupabase(user.id, setlists, songs).catch(() => {});
   }
 
   loadUserSync(userId: string): UserProfileSync | null {

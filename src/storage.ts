@@ -1,17 +1,133 @@
 import type { ClickSound, ClickSubdivision, MidiMapping, OutputBus, PadFolderBank, PadSound, Setlist, Song, TransitionMode } from './types';
-import type { AsioOutputMapping } from './audio/asioService';
-import { DEFAULT_ASIO_MAPPING } from './audio/asioService';
 
 const DB_NAME = 'worship-playback-pro';
 const STORE = 'stems';
 const LS_KEY = 'wpp-state-v2';
 
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+let dbInstance: IDBDatabase | null = null;
+let dbOpenPromise: Promise<IDBDatabase> | null = null;
+
+export function openDb(): Promise<IDBDatabase> {
+  if (dbInstance) return Promise.resolve(dbInstance);
+  if (dbOpenPromise) return dbOpenPromise;
+
+  dbOpenPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
     req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      dbInstance = req.result;
+      dbInstance.onclose = () => {
+        dbInstance = null;
+        dbOpenPromise = null;
+      };
+      dbInstance.onversionchange = () => {
+        dbInstance?.close();
+        dbInstance = null;
+        dbOpenPromise = null;
+      };
+      resolve(dbInstance);
+    };
+    req.onerror = () => {
+      dbOpenPromise = null;
+      reject(req.error);
+    };
+  });
+  return dbOpenPromise;
+}
+
+/**
+ * Carrega todos os stems de uma música em uma única transação atômica do IndexedDB.
+ * Reduz drasticamente a sobrecarga de I/O e evita travamentos ou canais ausentes.
+ * Agora suporta AbortSignal para cancelamento limpo durante navegação rápida.
+ */
+export async function loadSongStemsMap(
+  songId: string,
+  trackIds: string[],
+  signal?: AbortSignal
+): Promise<Map<string, ArrayBuffer>> {
+  const db = await openDb();
+  const map = new Map<string, ArrayBuffer>();
+  if (!trackIds.length) return map;
+
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
+  return new Promise<Map<string, ArrayBuffer>>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
+    signal?.addEventListener('abort', onAbort);
+
+    try {
+      const tx = db.transaction(STORE, 'readonly');
+      const store = tx.objectStore(STORE);
+      let pending = trackIds.length;
+      let completed = false;
+
+      const finishOne = () => {
+        pending--;
+        if (pending <= 0 && !completed) {
+          completed = true;
+          signal?.removeEventListener('abort', onAbort);
+          resolve(map);
+        }
+      };
+
+      for (const tid of trackIds) {
+        if (signal?.aborted) {
+          completed = true;
+          signal?.removeEventListener('abort', onAbort);
+          reject(new DOMException('Aborted', 'AbortError'));
+          return;
+        }
+
+        const req = store.get(`${songId}:${tid}`);
+        req.onsuccess = async () => {
+          if (signal?.aborted) {
+            completed = true;
+            signal?.removeEventListener('abort', onAbort);
+            reject(new DOMException('Aborted', 'AbortError'));
+            return;
+          }
+          const val = req.result;
+          if (val) {
+            if (val instanceof ArrayBuffer) {
+              map.set(tid, val);
+            } else if (ArrayBuffer.isView(val)) {
+              const v = val as ArrayBufferView;
+              map.set(tid, (v.buffer as ArrayBuffer).slice(v.byteOffset, v.byteOffset + v.byteLength));
+            } else if (val instanceof Blob) {
+              try {
+                const ab = await val.arrayBuffer();
+                map.set(tid, ab);
+              } catch (e) {
+                console.warn('Erro ao ler blob de áudio no IndexedDB:', e);
+              }
+            }
+          }
+          finishOne();
+        };
+        req.onerror = () => finishOne();
+      }
+
+      tx.onerror = () => {
+        if (!completed) {
+          completed = true;
+          signal?.removeEventListener('abort', onAbort);
+          resolve(map);
+        }
+      };
+      tx.onabort = () => {
+        if (!completed) {
+          completed = true;
+          signal?.removeEventListener('abort', onAbort);
+          resolve(map);
+        }
+      };
+    } catch (err) {
+      console.warn('Falha na transação batch IndexedDB:', err);
+      signal?.removeEventListener('abort', onAbort);
+      resolve(map);
+    }
   });
 }
 
@@ -74,7 +190,7 @@ export async function loadStems(
     if (Object.keys(out).length > 0) return out;
   }
   // Fallback for legacy single-record format
-  return new Promise((res, rej) => {
+  return new Promise<Record<string, ArrayBuffer> | undefined>((res, rej) => {
     const req = db.transaction(STORE).objectStore(STORE).get(songId);
     req.onsuccess = () => res(req.result);
     req.onerror = () => rej(req.error);
@@ -181,20 +297,45 @@ export async function loadGuideClip(clipKey: string): Promise<ArrayBuffer | unde
   return undefined;
 }
 
-/** Filter out macOS AppleDouble (`._*`), hidden files, or tiny non-audio files (< 1 KB). */
+/** Valida se o arquivo é um candidato real de áudio, suportando todos os formatos profissionais de multitracks */
 export function isValidAudioCandidate(file: File): boolean {
   const name = file.name.trim();
-  if (name.startsWith('._') || name.startsWith('.')) return false;
-  if (file.size < 1024) return false;
-  return file.type.startsWith('audio') || /\.(wav|wave|mp3|m4a|aac|ogg|flac|aif|aiff|opus|webm)$/i.test(name);
+  // Ignora apenas garfos de recursos do macOS (._*) e arquivos de lixo do sistema
+  if (name.startsWith('._') || name === '.DS_Store' || name === '__MACOSX' || name.includes('__MACOSX/')) {
+    return false;
+  }
+  // Se for arquivo oculto do Mac com tamanho mínimo (< 4KB), ignora
+  if (name.startsWith('.') && file.size < 4096) return false;
+  if (file.size < 100) return false;
+
+  return (
+    file.type.startsWith('audio') ||
+    /\.(wav|wave|mp3|m4a|mp4|aac|ogg|flac|aif|aiff|wma|alac|caf|opus|webm|weba)$/i.test(name)
+  );
+}
+
+/**
+ * Ensures any buffer, ArrayBufferView, or byte array is returned as a pure ArrayBuffer.
+ */
+export function ensureArrayBuffer(input: any): ArrayBuffer {
+  if (!input) return new ArrayBuffer(0);
+  if (input instanceof ArrayBuffer) return input;
+  if (ArrayBuffer.isView(input)) {
+    return (input.buffer as ArrayBuffer).slice(input.byteOffset, input.byteOffset + input.byteLength);
+  }
+  if (Array.isArray(input)) {
+    return new Uint8Array(input).buffer;
+  }
+  return input as ArrayBuffer;
 }
 
 /**
  * Pure-JS fallback decoder for WAV / BWF / RF64 / WAVE_FORMAT_EXTENSIBLE (8/16/24/32-bit PCM & 32/64-bit Float)
  * and AIFF / AIFC files when Chromium's native decodeAudioData rejects professional DAW headers.
  */
-export function decodePcmContainerFallback(ctx: BaseAudioContext, ab: ArrayBuffer): AudioBuffer | null {
+export function decodePcmContainerFallback(ctx: BaseAudioContext, input: any): AudioBuffer | null {
   try {
+    const ab = ensureArrayBuffer(input);
     const view = new DataView(ab);
     if (view.byteLength < 44) return null;
     const magic0 = view.getUint32(0, false);
@@ -248,6 +389,40 @@ export function decodePcmContainerFallback(ctx: BaseAudioContext, ab: ArrayBuffe
       const audioBuf = ctx.createBuffer(outChannels, numFrames, sampleRate);
       const chData: Float32Array[] = [];
       for (let c = 0; c < outChannels; c++) chData.push(audioBuf.getChannelData(c));
+
+      // Fast path 1: 16-bit PCM (WAV) - 95% of multitracks
+      if (audioFormat === 1 && bitsPerSample === 16 && dataOffset % 2 === 0) {
+        try {
+          const totalSamples = numFrames * channels;
+          const i16 = new Int16Array(ab, dataOffset, totalSamples);
+          for (let i = 0; i < numFrames; i++) {
+            const frameIdx = i * channels;
+            for (let c = 0; c < outChannels; c++) {
+              chData[c][i] = i16[frameIdx + c] / 32768;
+            }
+          }
+          return audioBuf;
+        } catch {
+          // Fall through to generic loop
+        }
+      }
+
+      // Fast path 2: 32-bit Float PCM (WAV)
+      if (audioFormat === 3 && bitsPerSample === 32 && dataOffset % 4 === 0) {
+        try {
+          const totalSamples = numFrames * channels;
+          const f32 = new Float32Array(ab, dataOffset, totalSamples);
+          for (let i = 0; i < numFrames; i++) {
+            const frameIdx = i * channels;
+            for (let c = 0; c < outChannels; c++) {
+              chData[c][i] = f32[frameIdx + c];
+            }
+          }
+          return audioBuf;
+        } catch {
+          // Fall through to generic loop
+        }
+      }
 
       let ptr = dataOffset;
       for (let i = 0; i < numFrames; i++) {
@@ -353,7 +528,11 @@ export function decodePcmContainerFallback(ctx: BaseAudioContext, ab: ArrayBuffe
  * 1. Tries native WebAudio `ctx.decodeAudioData`
  * 2. Falls back to our pure-JS WAV / BWF / RF64 / Extensible / AIFF PCM & Float decoder
  */
-export async function decodeAudioDataSafe(ctx: BaseAudioContext, ab: ArrayBuffer): Promise<AudioBuffer> {
+export async function decodeAudioDataSafe(
+  ctx: BaseAudioContext,
+  input: ArrayBuffer | ArrayBufferView | number[],
+): Promise<AudioBuffer> {
+  const ab = ensureArrayBuffer(input);
   try {
     return await ctx.decodeAudioData(ab.slice(0));
   } catch (nativeErr) {
@@ -505,13 +684,20 @@ export interface Settings {
   asioDriverName?: string;
   asioBufferSize?: number;
   asioSampleRate?: number;
-  asioOutputMapping?: AsioOutputMapping;
-  secondaryOutputDevice?: string;
-  useDualAudioDevices?: boolean;
   internalClickVolume?: number;
+  internalClickPan?: number;
   internalClickMute?: boolean;
   internalClickOutput?: OutputBus;
   autoGuideOutput?: OutputBus;
+  // Dual audio device / ASIO output mapping
+  useDualAudioDevices?: boolean;
+  secondaryOutputDevice?: string;
+  asioOutputMapping?: {
+    tracksOutL: number;
+    tracksOutR: number;
+    guideOut: number;
+    clickOut: number;
+  };
 }
 
 export interface PersistedState {
@@ -542,7 +728,7 @@ export const DEFAULT_SETTINGS: Settings = {
   clickSubdivide: false,
   clickSubdivision: '1/4',
   clickSound: 'woodblock',
-  smartRouting: true,
+  smartRouting: false,
   padVolume: 0.6,
   padSound: 'warm',
   padCutoff: 1800,
@@ -562,17 +748,22 @@ export const DEFAULT_SETTINGS: Settings = {
   guideVoicePack: 'neural_pt_female',
   guidePitch: 1.0,
   guideRate: 1.12,
-  audioDriverType: 'ASIO',
-  asioDriverName: 'ASIO4ALL v2',
+  audioDriverType: 'WASAPI',
   asioBufferSize: 128,
   asioSampleRate: 48000,
-  asioOutputMapping: DEFAULT_ASIO_MAPPING,
-  secondaryOutputDevice: '',
-  useDualAudioDevices: false,
   internalClickVolume: 0.75,
+  internalClickPan: 0,
   internalClickMute: false,
-  internalClickOutput: 'OUT_6',
-  autoGuideOutput: 'OUT_5',
+  internalClickOutput: 'OUT_4',
+  autoGuideOutput: 'OUT_3',
+  useDualAudioDevices: false,
+  secondaryOutputDevice: '',
+  asioOutputMapping: {
+    tracksOutL: 1,
+    tracksOutR: 2,
+    guideOut: 3,
+    clickOut: 4,
+  },
 };
 
 export function loadState(): PersistedState | null {

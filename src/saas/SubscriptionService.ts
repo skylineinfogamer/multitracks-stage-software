@@ -1,6 +1,7 @@
 import { authService } from './AuthService';
 import { supabase } from './supabaseClient';
 import type {
+  DbPlan,
   PaymentGatewayConfig,
   PaymentProvider,
   PlanDetails,
@@ -12,6 +13,7 @@ import type {
 } from './types';
 
 const LS_PAYMENT_CONFIG_KEY = 'wpp_saas_payment_config_v1';
+const LS_DYNAMIC_PLANS_KEY = 'wpp_saas_dynamic_plans_v1';
 
 export const PLANS: Record<SubscriptionPlanId, PlanDetails> = {
   monthly: {
@@ -21,7 +23,7 @@ export const PLANS: Record<SubscriptionPlanId, PlanDetails> = {
     interval: 'monthly',
     description: 'Acesso completo a todas as funções para músicos e líderes de louvor.',
     features: [
-      'Acesso ao Catálogo Master de MultiTracks (Google Drive)',
+      'Armazenamento Privado de MultiTracks na Nuvem B2',
       'Mixer Profissional com 8 Canais e Saídas USB',
       'Download e Cache de Stems Offline',
       'Sincronização de Repertórios e Volumes em Nuvem',
@@ -38,8 +40,8 @@ export const PLANS: Record<SubscriptionPlanId, PlanDetails> = {
     features: [
       'Tudo incluído no Plano Mensal',
       '2 Meses Grátis de Economia',
+      'Nuvem B2 de Alta Velocidade para seus Backing Tracks',
       'Prioridade de Alta Velocidade nos Downloads',
-      'Acesso Antecipado a Novos Arranjos e Músicas',
       'Suporte Técnico Dedicado via WhatsApp',
     ],
   },
@@ -53,7 +55,7 @@ export const PLANS: Record<SubscriptionPlanId, PlanDetails> = {
     features: [
       'Instalação liberada em todos os notebooks da igreja',
       'Repertórios compartilhados entre toda a equipe',
-      'Catálogo completo desbloqueado sem limite de faixas',
+      '500 GB de Armazenamento na Nuvem B2',
       'Suporte prioritário para eventos e conferências',
     ],
   },
@@ -66,7 +68,7 @@ export const PLANS: Record<SubscriptionPlanId, PlanDetails> = {
     description: 'Conta de Administradora do Sistema com controle mestre irrestrito.',
     features: [
       'Acesso Irrestrito Perpétuo (Sem Bloqueio de Assinatura)',
-      'Painel de Controle Cloud e Service Account Google Drive',
+      'Painel de Controle Cloud e Gestão B2 / Supabase',
       'Gerenciamento de Assinaturas e Usuários',
       'Sincronização Master de Repertório',
     ],
@@ -102,10 +104,14 @@ export interface WebhookResult {
 
 class SubscriptionService {
   private config: PaymentGatewayConfig = { ...DEFAULT_CONFIG };
+  private dynamicPlans: PlanDetails[] = [];
   private listeners: Set<() => void> = new Set();
 
   constructor() {
     this.loadConfig();
+    this.loadCachedPlans();
+    // Inicia a busca remota assíncrona dos planos cadastrados no Supabase
+    void this.fetchPlans();
   }
 
   private loadConfig() {
@@ -118,6 +124,74 @@ class SubscriptionService {
       console.warn('Falha ao carregar configuração de pagamento:', e);
       this.config = { ...DEFAULT_CONFIG };
     }
+  }
+
+  private loadCachedPlans() {
+    try {
+      const stored = localStorage.getItem(LS_DYNAMIC_PLANS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          this.dynamicPlans = parsed;
+          return;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    this.dynamicPlans = [PLANS.monthly, PLANS.annual, PLANS.church_vip];
+  }
+
+  /**
+   * Busca a lista de planos cadastrada diretamente na tabela `plans` do Supabase.
+   * Se a tabela ainda estiver vazia, utiliza os planos padrão como fallback seguro.
+   */
+  async fetchPlans(): Promise<PlanDetails[]> {
+    try {
+      const { data, error } = await supabase
+        .from('plans')
+        .select('*')
+        .order('price', { ascending: true });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        this.dynamicPlans = data.map((row: DbPlan) => {
+          const priceCents = Number(row.price) || 0;
+          const intervalNorm: 'monthly' | 'annual' | 'lifetime' =
+            row.interval === 'year' || row.interval === 'annual'
+              ? 'annual'
+              : row.interval === 'lifetime'
+              ? 'lifetime'
+              : 'monthly';
+
+          const existingStatic = PLANS[row.id as SubscriptionPlanId];
+
+          return {
+            id: row.id,
+            name: row.name,
+            priceBrl: priceCents / 100,
+            priceCents,
+            interval: intervalNorm,
+            description: row.description || existingStatic?.description || '',
+            features: existingStatic?.features || [
+              'Armazenamento Privado de MultiTracks na Nuvem B2',
+              'Mixer Profissional com 8 Canais e Saídas USB',
+              'Download e Cache de Stems Offline',
+              'Sincronização em Tempo Real de Setlists Web & App',
+              'Vozes Guia em Português e Cues de Seções',
+            ],
+            badge: existingStatic?.badge,
+            is_active: row.is_active !== false,
+          };
+        });
+
+        localStorage.setItem(LS_DYNAMIC_PLANS_KEY, JSON.stringify(this.dynamicPlans));
+        this.notify();
+        return this.dynamicPlans;
+      }
+    } catch (e) {
+      console.warn('[SubscriptionService] Falha ao consultar tabela plans do Supabase:', e);
+    }
+    return this.getAllPlans(true);
   }
 
   getGatewayConfig(): PaymentGatewayConfig {
@@ -145,26 +219,95 @@ class SubscriptionService {
     }
   }
 
-  getPlan(planId: SubscriptionPlanId): PlanDetails {
-    return PLANS[planId] || PLANS.monthly;
+  getPlan(planId: string): PlanDetails {
+    const found = this.dynamicPlans.find((p) => p.id === planId);
+    if (found) return found;
+    return PLANS[planId as SubscriptionPlanId] || PLANS.monthly;
   }
 
-  getAllPlans(): PlanDetails[] {
+  getAllPlans(includeInactive = false): PlanDetails[] {
+    if (this.dynamicPlans.length > 0) {
+      return includeInactive ? this.dynamicPlans : this.dynamicPlans.filter((p) => p.is_active !== false);
+    }
     return [PLANS.monthly, PLANS.annual, PLANS.church_vip];
   }
 
-  getCheckoutUrl(planId: SubscriptionPlanId): string {
-    const handle = this.config.infinitepayHandle?.replace(/^\$/, '') || 'multitracks_pro';
-    const price = this.getPlan(planId).priceBrl;
-    if (planId === 'annual' || planId === 'church_vip') {
+  /**
+   * Salva ou atualiza um plano na tabela `plans` do Supabase.
+   * Converte automaticamente o valor de Reais (R$) para centavos no banco.
+   */
+  async savePlan(plan: {
+    id: string;
+    name: string;
+    priceBrl: number;
+    interval: string;
+    description?: string;
+    is_active: boolean;
+  }): Promise<PlanDetails> {
+    const priceCents = Math.round(plan.priceBrl * 100);
+    const dbPayload = {
+      id: plan.id.trim().toLowerCase().replace(/\s+/g, '_'),
+      name: plan.name.trim(),
+      price: priceCents,
+      interval: plan.interval,
+      description: plan.description || '',
+      is_active: plan.is_active,
+    };
+
+    const { error } = await supabase.from('plans').upsert(dbPayload);
+    if (error) {
+      throw new Error(`Falha ao salvar plano no Supabase: ${error.message}`);
+    }
+
+    await this.fetchPlans();
+    return this.getPlan(dbPayload.id);
+  }
+
+  /**
+   * Exclui um plano do banco de dados Supabase.
+   */
+  async deletePlan(planId: string): Promise<void> {
+    const { error } = await supabase.from('plans').delete().eq('id', planId);
+    if (error) {
+      throw new Error(`Falha ao excluir plano no Supabase: ${error.message}`);
+    }
+    this.dynamicPlans = this.dynamicPlans.filter((p) => p.id !== planId);
+    localStorage.setItem(LS_DYNAMIC_PLANS_KEY, JSON.stringify(this.dynamicPlans));
+    this.notify();
+  }
+
+  /**
+   * Ativa ou desativa a disponibilidade de um plano no checkout.
+   */
+  async togglePlanActive(planId: string, is_active: boolean): Promise<void> {
+    const { error } = await supabase.from('plans').update({ is_active }).eq('id', planId);
+    if (error) {
+      throw new Error(`Falha ao alterar status do plano: ${error.message}`);
+    }
+    const target = this.dynamicPlans.find((p) => p.id === planId);
+    if (target) {
+      target.is_active = is_active;
+      localStorage.setItem(LS_DYNAMIC_PLANS_KEY, JSON.stringify(this.dynamicPlans));
+      this.notify();
+    }
+  }
+
+  getCheckoutUrl(planId: string): string {
+    const handle = this.config.infinitepayHandle?.replace(/^\$/, '') || 'skylineinfogamer';
+    const plan = this.getPlan(planId);
+    const price = plan.priceBrl;
+    if (planId === 'annual') {
       return this.config.infinitepayAnnualCheckoutUrl || `https://infinitepay.io/pay/${handle}/${price.toFixed(2)}`;
     }
-    return this.config.infinitepayMonthlyCheckoutUrl || `https://infinitepay.io/pay/${handle}/${price.toFixed(2)}`;
+    if (planId === 'monthly') {
+      return this.config.infinitepayMonthlyCheckoutUrl || `https://infinitepay.io/pay/${handle}/${price.toFixed(2)}`;
+    }
+    return `https://infinitepay.io/pay/${handle}/${price.toFixed(2)}`;
   }
 
   async createInfinitePayCharge(
     userId: string,
-    planId: SubscriptionPlanId,
+    planId: string,
     method: 'pix' | 'card' = 'pix',
     customer?: { name?: string; email?: string; phone?: string; cpf?: string },
   ): Promise<{
@@ -418,7 +561,13 @@ class SubscriptionService {
     if (!user) throw new Error('Usuário não encontrado.');
 
     const plan = this.getPlan(planId);
-    const durationDays = plan.interval === 'annual' ? 365 : 30;
+    const billingCycle: 'monthly' | 'annual' | 'lifetime' =
+      plan.interval === 'annual' || plan.interval === 'year'
+        ? 'annual'
+        : plan.interval === 'lifetime'
+        ? 'lifetime'
+        : 'monthly';
+    const durationDays = billingCycle === 'annual' ? 365 : billingCycle === 'lifetime' ? 3650 : 30;
 
     const sub: UserSubscription = {
       planId,
@@ -426,7 +575,7 @@ class SubscriptionService {
       status: 'active',
       provider,
       priceBrl: plan.priceBrl,
-      billingCycle: plan.interval,
+      billingCycle,
       currentPeriodEnd: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString(),
       lastPaymentDate: new Date().toISOString(),
     };

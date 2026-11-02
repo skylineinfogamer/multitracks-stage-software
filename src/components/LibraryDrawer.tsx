@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Setlist, Song } from '../types';
 import { formatTime } from '../music';
-import { IconPlus, IconTrash, IconUpload, IconX } from './Icons';
+import { IconPlus, IconTrash, IconUpload, IconX, IconCloudDownload } from './Icons';
 
 interface Props {
   songs: Song[];
@@ -16,6 +16,7 @@ interface Props {
   onCreateSetlist: (name: string) => void;
   onRenameSetlist: (id: string, name: string) => void;
   onDeleteSetlist: (id: string) => void;
+  onSyncWebSetlists?: () => void;
 }
 
 export function LibraryDrawer(p: Props) {
@@ -93,6 +94,11 @@ export function LibraryDrawer(p: Props) {
               <button className="btn primary small" onClick={() => p.onCreateSetlist(`Novo setlist ${p.setlists.length + 1}`)}>
                 <IconPlus size={14} /> Novo setlist
               </button>
+              {p.onSyncWebSetlists && (
+                <button className="btn small" style={{ background: '#0099FF' }} onClick={p.onSyncWebSetlists} title="Sincronizar setlists criadas no painel Web">
+                  <IconCloudDownload size={14} /> Sync Web
+                </button>
+              )}
             </div>
             <div className="lib-list">
               {p.setlists.map((sl) => (

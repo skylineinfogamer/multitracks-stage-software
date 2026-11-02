@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Modal } from './Modal';
+import { PlansAdminPanel } from './PlansAdminPanel';
 import { authService } from '../saas/AuthService';
 import { masterCatalogService } from '../saas/MasterCatalogService';
 import { subscriptionService } from '../saas/SubscriptionService';
 import { supabase } from '../saas/supabaseClient';
 import { openExternalUrl } from '../utils/openUrl';
-import type { CatalogSong, GoogleServiceAccountKey, MasterCloudConfig, PaymentGatewayConfig, User, UserApprovalStatus } from '../saas/types';
+import type { CatalogSong, MasterCloudConfig, PaymentGatewayConfig, User, UserApprovalStatus, PlanDetails, SubscriptionPlanId } from '../saas/types';
 
 interface Props {
   onClose: () => void;
@@ -13,18 +15,20 @@ interface Props {
 }
 
 export function AdminPanelDialog({ onClose, onCatalogUpdated }: Props) {
-  const [activeTab, setActiveTab] = useState<'pending' | 'subscriptions' | 'gateways' | 'cloud'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'subscriptions' | 'plans' | 'gateways' | 'cloud'>('pending');
   const [config, setConfig] = useState<MasterCloudConfig>(() => masterCatalogService.getMasterConfig());
-  const [provider, setProvider] = useState<'gdrive' | 'onedrive'>(config.provider);
-  const [rootFolderInput, setRootFolderInput] = useState(config.rootFolderId);
-  const [serviceAccount, setServiceAccount] = useState<GoogleServiceAccountKey | null>(config.serviceAccount ?? null);
+  const b2BaseUrl = masterCatalogService.getB2BaseUrl();
+  const [b2BucketName, setB2BucketName] = useState(() => config.b2BucketName || 'worship-playback-vs');
+  const [b2KeyId, setB2KeyId] = useState(() => config.b2KeyId || '0053f8d54a0fee60000000003');
+  const [b2ApplicationKey, setB2ApplicationKey] = useState(() => config.b2ApplicationKey || 'K005Oq/5orR64KcpTr3HsUBsMIvgsUI');
+  const [testingB2, setTestingB2] = useState(false);
+  const [b2TestFeedback, setB2TestFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
   const [adminWhatsApp, setAdminWhatsApp] = useState(() => masterCatalogService.getAdminWhatsAppNumber());
 
   const [syncing, setSyncing] = useState(false);
-  const [copiedEmail, setCopiedEmail] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [catalogSongs, setCatalogSongs] = useState<CatalogSong[]>(() => masterCatalogService.getCatalog());
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Subscriptions & Users state
   const [users, setUsers] = useState<User[]>(() => authService.listUsers());
@@ -355,52 +359,105 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
+
+-- Tabela de Planos de Assinatura Dinâmicos
+CREATE TABLE IF NOT EXISTS public.plans (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  price INTEGER NOT NULL,
+  interval TEXT NOT NULL,
+  description TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE public.plans ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Anyone can read active plans" ON public.plans;
+CREATE POLICY "Anyone can read active plans" ON public.plans FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Admins can manage plans" ON public.plans;
+CREATE POLICY "Admins can manage plans" ON public.plans FOR ALL USING (public.is_admin());
+
+INSERT INTO public.plans (id, name, price, interval, description, is_active)
+VALUES
+  ('monthly', 'Worship Mensal', 4990, 'month', 'Acesso completo ao catálogo mestre e mixer', true),
+  ('annual', 'Pro Anual (2 meses off)', 47900, 'year', 'Acesso anual ilimitado com economia de 2 meses', true),
+  ('church_vip', 'Ministério VIP Vitalício', 99000, 'lifetime', 'Acesso contínuo sem renovações periódicas', false)
+ON CONFLICT (id) DO NOTHING;
 `;
 
-  const handleSaveConfig = () => {
+  const handleSaveConfig = async (silent: boolean = false) => {
+    const cleanKeyId = b2KeyId.trim() || '0053f8d54a0fee60000000003';
+    const cleanAppKey = b2ApplicationKey.trim() || 'K005Oq/5orR64KcpTr3HsUBsMIvgsUI';
+    const cleanBucketName = b2BucketName.trim() || 'worship-playback-vs';
+    const cleanBucketId = '437f98cd55f48a50af1e0e16';
+    const cleanBaseUrl = b2BaseUrl.trim() || `https://f005.backblazeb2.com/file/${cleanBucketName}/`;
+
     masterCatalogService.saveMasterConfig({
-      provider,
-      rootFolderId: rootFolderInput.trim(),
-      serviceAccount,
+      b2BaseUrl: cleanBaseUrl,
+      b2KeyId: cleanKeyId,
+      b2ApplicationKey: cleanAppKey,
+      b2BucketName: cleanBucketName,
+      b2BucketId: cleanBucketId,
       adminWhatsAppNumber: adminWhatsApp.replace(/\D/g, ''),
     });
     setConfig(masterCatalogService.getMasterConfig());
-    setStatusMsg('✅ Configurações do servidor central e WhatsApp salvas com sucesso!');
-  };
 
-  const handleJsonUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
+    if (typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__)) {
       try {
-        const json = JSON.parse(ev.target?.result as string) as GoogleServiceAccountKey;
-        if (!json.private_key || !json.client_email) {
-          throw new Error('Arquivo JSON inválido. Certifique-se de ser uma chave de Service Account do Google Cloud.');
-        }
-        setServiceAccount(json);
-        masterCatalogService.saveMasterConfig({ serviceAccount: json });
-        setConfig(masterCatalogService.getMasterConfig());
-        setStatusMsg(`✅ Chave de Service Account "${json.client_email}" carregada com sucesso!`);
-      } catch (err) {
-        setStatusMsg(`❌ Falha ao carregar JSON: ${(err as Error).message}`);
+        await invoke('b2_save_config', {
+          config: {
+            bucketName: cleanBucketName,
+            bucketId: cleanBucketId,
+            keyId: cleanKeyId,
+            applicationKey: cleanAppKey,
+            downloadUrl: cleanBaseUrl,
+          },
+        });
+      } catch (e: any) {
+        console.warn('Falha ao salvar b2_config no Rust:', e);
       }
-    };
-    reader.readAsText(file);
+    }
+    if (!silent) {
+      setStatusMsg('✅ Configurações do Backblaze B2 e WhatsApp salvas com sucesso!');
+    }
   };
 
-  const handleCopyEmail = () => {
-    if (!serviceAccount?.client_email) return;
-    navigator.clipboard.writeText(serviceAccount.client_email);
-    setCopiedEmail(true);
-    setTimeout(() => setCopiedEmail(false), 2000);
+  const handleTestB2 = async () => {
+    setTestingB2(true);
+    setB2TestFeedback(null);
+    setStatusMsg('Conectando e autorizando Backblaze B2 via Rust nativo…');
+
+    try {
+      await handleSaveConfig(true);
+      const res = await masterCatalogService.testB2Connection();
+      setB2TestFeedback({
+        success: res.success,
+        message: res.message,
+      });
+      if (res.success) {
+        setStatusMsg('✅ Conexão B2 autorizada! Atualizando catálogo dinamicamente…');
+        // Imediatamente atualiza a listagem de arquivos e contador do catálogo
+        await handleSyncNow(false);
+      } else {
+        setStatusMsg(`❌ Falha no teste B2: ${res.message}`);
+      }
+    } catch (e: any) {
+      setB2TestFeedback({
+        success: false,
+        message: e?.message || 'Falha de conexão ao autorizar Backblaze B2',
+      });
+      setStatusMsg(`❌ Erro no teste B2: ${e?.message || e}`);
+    } finally {
+      setTestingB2(false);
+    }
   };
 
-  const handleSyncNow = async () => {
-    handleSaveConfig();
+  const handleSyncNow = async (saveFirst: boolean = true) => {
+    if (saveFirst) {
+      await handleSaveConfig(true);
+    }
     setSyncing(true);
-    setStatusMsg('Conectando ao Drive mestre via Service Account e sincronizando catálogo…');
+    setStatusMsg('Sincronizando catálogo dinamicamente via Backblaze B2 (Rust)…');
 
     try {
       const res = await masterCatalogService.syncCatalogFromMasterCloud((msg) => {
@@ -409,9 +466,9 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
       setCatalogSongs(res.songs);
       setConfig(masterCatalogService.getMasterConfig());
       onCatalogUpdated?.();
-      setStatusMsg(`🎉 Catálogo sincronizado com sucesso! Total de ${res.count} músicas disponíveis para os usuários.`);
-    } catch (err) {
-      setStatusMsg(`❌ Falha no sync: ${(err as Error).message}`);
+      setStatusMsg(`🎉 Catálogo Backblaze B2 sincronizado! ${res.count} músicas disponíveis em tempo real.`);
+    } catch (err: any) {
+      setStatusMsg(`❌ Falha no sync B2: ${err?.message || err}`);
     } finally {
       setSyncing(false);
     }
@@ -430,6 +487,26 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
     subscriptionService.saveGatewayConfig(gatewayConfig);
     setGatewaySavedMsg('✅ Configurações do Gateway InfinitePay salvas com sucesso!');
     setTimeout(() => setGatewaySavedMsg(null), 3000);
+  };
+
+  /**
+   * Altera o plano de assinatura de um usuário
+   */
+  const handleChangePlan = async (userId: string, userName: string, newPlanId: SubscriptionPlanId) => {
+    setUpdatingId(userId);
+    setActionFeedback(`Alterando plano de ${userName}...`);
+
+    try {
+      subscriptionService.setUserPlan(userId, newPlanId);
+      setActionFeedback(`✅ Plano de ${userName} alterado com sucesso!`);
+      refreshUsers();
+      await loadSupabaseUsers();
+    } catch (err: any) {
+      setActionFeedback(`❌ Falha ao alterar plano: ${err.message || String(err)}`);
+    } finally {
+      setUpdatingId(null);
+      setTimeout(() => setActionFeedback(null), 4000);
+    }
   };
 
   const filteredPendingList = pendingUsers.filter((u) => {
@@ -518,11 +595,22 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
             ⚡ Gateway InfinitePay (PIX & Cartão)
           </button>
           <button
+            className={`btn small ${activeTab === 'plans' ? 'primary' : ''}`}
+            onClick={() => setActiveTab('plans')}
+            style={{
+              fontWeight: 700,
+              background: activeTab === 'plans' ? '#0099ff' : undefined,
+              color: activeTab === 'plans' ? '#fff' : undefined,
+            }}
+          >
+            💳 Gestão de Planos
+          </button>
+          <button
             className={`btn small ${activeTab === 'cloud' ? 'primary' : ''}`}
             onClick={() => setActiveTab('cloud')}
             style={{ fontWeight: 700 }}
           >
-            ☁️ Servidor Google Drive ({catalogSongs.length} músicas)
+            ⚡ Servidor Backblaze B2 ({catalogSongs.length} músicas)
           </button>
         </div>
 
@@ -1040,6 +1128,34 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
                           Plano: <span style={{ color: '#f1f5f9', fontWeight: 600 }}>{sub?.planName || 'Mensal'}</span> · Gateway: <span style={{ color: '#f1f5f9', textTransform: 'uppercase' }}>{sub?.provider || 'InfinitePay'}</span> · Vence: <span style={{ color: '#38bdf8' }}>{sub?.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString('pt-BR') : 'Vitalício'}</span>
                         </div>
 
+                        {/* Plan Selector Dropdown */}
+                        {!isMaster && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <select
+                              value={sub?.planId || 'monthly'}
+                              onChange={(e) => handleChangePlan(u.id, u.name, e.target.value as SubscriptionPlanId)}
+                              disabled={updatingId === u.id}
+                              style={{
+                                fontSize: 11,
+                                background: '#111317',
+                                border: '1px solid #2e323b',
+                                borderRadius: 6,
+                                padding: '6px 10px',
+                                color: '#f1f5f9',
+                                cursor: updatingId === u.id ? 'wait' : 'pointer',
+                                minWidth: 160,
+                              }}
+                              title="Alterar plano de assinatura do usuário"
+                            >
+                              {subscriptionService.getAllPlans(true).map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name} ({p.interval === 'annual' ? 'Anual' : p.interval === 'lifetime' ? 'Vitalício' : 'Mensal'}) - R$ {p.priceBrl.toFixed(2).replace('.', ',')}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
                         {/* Action Buttons */}
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                           {!isMaster && (
@@ -1233,102 +1349,134 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
           </div>
         )}
 
-        {/* TAB 3: MASTER CLOUD / GOOGLE DRIVE */}
+        {/* TAB: GESTÃO DE PLANOS DE ASSINATURA */}
+        {activeTab === 'plans' && (
+          <PlansAdminPanel />
+        )}
+
+        {/* TAB 3: MASTER CLOUD / STORAGE (BACKBLAZE B2 EXCLUSIVO) */}
         {activeTab === 'cloud' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Service Account Banner */}
-            {serviceAccount ? (
-              <div
-                style={{
-                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(5, 150, 105, 0.06))',
-                  border: '1px solid rgba(16, 185, 129, 0.4)',
-                  borderRadius: 8,
-                  padding: '14px 16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 16 }}>🟢</span>
-                    <strong style={{ fontSize: 14, color: '#34d399' }}>
-                      Google Cloud Service Account Ativa (multitracks-pro)
-                    </strong>
-                  </div>
-                  <button
-                    className="btn small"
-                    style={{ fontSize: 11, borderColor: '#34d399', color: '#34d399' }}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Trocar Chave (.json)
-                  </button>
+            {/* 1. Servidor Backblaze B2 (API Direta & Dinâmica) */}
+            <div
+              style={{
+                background: '#141720',
+                border: '1px solid #293040',
+                borderRadius: 8,
+                padding: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <strong style={{ fontSize: 14, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 16 }}>⚡</span> Servidor Central Backblaze B2 (Nuvem Dinâmica)
+                  </strong>
+                  <span className="muted" style={{ fontSize: 11.5, marginTop: 2, display: 'block' }}>
+                    Sincronização 100% automática e direta via Rust nativo dos arquivos .zip e .rar disponíveis no bucket.
+                  </span>
                 </div>
 
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', padding: '4px 10px', borderRadius: 20 }}>
+                  <span style={{ color: '#34d399', fontSize: 10 }}>●</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#34d399' }}>B2 ATIVO (EXCLUSIVO)</span>
+                </div>
+              </div>
+
+              {/* Campos simplificados: Key ID, Application Key, Bucket Name */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11.5, color: '#94a3b8', display: 'block', marginBottom: 3, fontWeight: 600 }}>
+                    Key ID (Application Key ID):
+                  </label>
+                  <input
+                    type="text"
+                    value={b2KeyId}
+                    onChange={(e) => setB2KeyId(e.target.value)}
+                    placeholder="0053f8d54a0fee60000000003"
+                    style={{ width: '100%', fontSize: 12.5, fontFamily: 'monospace' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11.5, color: '#94a3b8', display: 'block', marginBottom: 3, fontWeight: 600 }}>
+                    Application Key:
+                  </label>
+                  <input
+                    type="password"
+                    value={b2ApplicationKey}
+                    onChange={(e) => setB2ApplicationKey(e.target.value)}
+                    placeholder="K005Oq/5orR64KcpTr3HsUBsMIvgsUI"
+                    style={{ width: '100%', fontSize: 12.5, fontFamily: 'monospace' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11.5, color: '#94a3b8', display: 'block', marginBottom: 3, fontWeight: 600 }}>
+                  Bucket Name (opcional / padrão):
+                </label>
+                <input
+                  type="text"
+                  value={b2BucketName}
+                  onChange={(e) => setB2BucketName(e.target.value)}
+                  placeholder="worship-playback-vs"
+                  style={{ width: '100%', fontSize: 12.5, fontFamily: 'monospace' }}
+                />
+                <span className="muted" style={{ fontSize: 11, marginTop: 4, display: 'block', color: '#64748b' }}>
+                  🔒 O Bucket ID (<code style={{ color: '#38bdf8' }}>437f98cd55f48a50af1e0e16</code>) é resolvido e vinculado automaticamente pelo motor nativo Rust sem necessidade de preenchimento manual.
+                </span>
+              </div>
+
+              {b2TestFeedback && (
                 <div
                   style={{
-                    background: '#0d0e11',
+                    fontSize: 12,
                     padding: '8px 12px',
                     borderRadius: 6,
-                    border: '1px solid #2e323b',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
+                    background: b2TestFeedback.success ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    border: `1px solid ${b2TestFeedback.success ? '#10b981' : '#ef4444'}`,
+                    color: b2TestFeedback.success ? '#34d399' : '#f87171',
                   }}
                 >
-                  <code style={{ fontSize: 12, color: '#38bdf8', wordBreak: 'break-all' }}>
-                    {serviceAccount.client_email}
-                  </code>
-                  <button
-                    className="btn small"
-                    style={{ fontSize: 11, marginLeft: 8, whiteSpace: 'nowrap' }}
-                    onClick={handleCopyEmail}
-                  >
-                    {copiedEmail ? '✅ Copiado!' : 'Copiar E-mail da Robô'}
-                  </button>
+                  {b2TestFeedback.message}
                 </div>
+              )}
 
-                <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
-                  💡 <strong>Instrução Importante:</strong> Abra sua pasta no seu Google Drive pessoal/profissional, clique em <strong>Compartilhar</strong> e adicione o e-mail da robô acima como <strong>Leitor</strong>. Feito isso, o sistema consegue ler e baixar todas as suas músicas instantaneamente!
-                </div>
-              </div>
-            ) : (
-              <div
-                style={{
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  border: '1px solid #ef4444',
-                  borderRadius: 8,
-                  padding: '14px 16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                }}
-              >
-                <strong style={{ fontSize: 13, color: '#f87171' }}>
-                  Nenhuma chave de Service Account configurada!
-                </strong>
-                <p style={{ fontSize: 12, color: '#cbd5e1', margin: 0 }}>
-                  Faça upload do arquivo JSON de credenciais fornecido pelo Google Cloud Console para ativar o servidor SaaS central.
-                </p>
+              {/* Ações principais */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                <button
+                  className="btn"
+                  disabled={testingB2 || syncing}
+                  onClick={() => void handleTestB2()}
+                  style={{
+                    background: '#1e293b',
+                    borderColor: '#0099ff',
+                    color: '#38bdf8',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {testingB2 ? '⏳ Testando Conexão…' : '🧪 Testar Conexão / Autorização'}
+                </button>
                 <button
                   className="btn primary"
-                  style={{ alignSelf: 'flex-start', marginTop: 4 }}
-                  onClick={() => fileInputRef.current?.click()}
+                  style={{ background: '#0099ff', borderColor: '#0099ff', color: '#fff', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}
+                  disabled={syncing || testingB2}
+                  onClick={() => void handleSyncNow()}
                 >
-                  📁 Carregar Arquivo JSON do Google Service Account
+                  {syncing ? '⏳ Sincronizando Catálogo B2…' : '🔄 Sincronizar Catálogo Agora'}
+                </button>
+                <button className="btn" disabled={syncing || testingB2} onClick={() => void handleSaveConfig()}>
+                  💾 Salvar Credenciais
                 </button>
               </div>
-            )}
+            </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              style={{ display: 'none' }}
-              onChange={handleJsonUpload}
-            />
-
-            {/* Provider and Root Folder Configuration */}
+            {/* 2. WhatsApp & Pedidos de MultiTracks */}
             <div
               style={{
                 background: '#16181e',
@@ -1340,42 +1488,8 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
                 gap: 12,
               }}
             >
-              <div style={{ display: 'flex', gap: 16 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-                  <input
-                    type="radio"
-                    name="cloud_provider"
-                    checked={provider === 'gdrive'}
-                    onChange={() => setProvider('gdrive')}
-                  />
-                  Google Drive (Oficial via Service Account)
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-                  <input
-                    type="radio"
-                    name="cloud_provider"
-                    checked={provider === 'onedrive'}
-                    onChange={() => setProvider('onedrive')}
-                  />
-                  Microsoft OneDrive (Admin Business)
-                </label>
-              </div>
-
               <div>
-                <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>
-                  ID da Pasta Raiz no Drive (Root Folder ID):
-                </label>
-                <input
-                  type="text"
-                  value={rootFolderInput}
-                  onChange={(e) => setRootFolderInput(e.target.value)}
-                  placeholder="Ex: 1A2b3C4d5E6F7G8h9I... (copie o final da URL da pasta no seu Drive)"
-                  style={{ width: '100%', fontSize: 13 }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: 12, color: '#38bdf8', display: 'block', marginBottom: 4 }}>
+                <label style={{ fontSize: 12, color: '#38bdf8', display: 'block', marginBottom: 4, fontWeight: 600 }}>
                   📱 WhatsApp do Administrador para Receber Pedidos de VS dos Usuários:
                 </label>
                 <input
@@ -1405,17 +1519,9 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO anon;
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                <button className="btn" onClick={handleSaveConfig}>
-                  Salvar Parâmetros
-                </button>
-                <button
-                  className="btn primary"
-                  style={{ background: '#f59e0b', borderColor: '#f59e0b', color: '#000', fontWeight: 800 }}
-                  disabled={syncing}
-                  onClick={() => void handleSyncNow()}
-                >
-                  {syncing ? '⏳ Escaneando Pastas no Drive…' : '🔄 Sincronizar Catálogo Agora'}
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button className="btn small" onClick={() => void handleSaveConfig()}>
+                  💾 Salvar WhatsApp
                 </button>
               </div>
             </div>

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Worship Tools",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "identifier": "com.worshiptools.app",
   "build": {
     "beforeDevCommand": {
@@ -36,13 +36,28 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null
+    },
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "icons/nsis-header.bmp",
+        "sidebarImage": "icons/nsis-sidebar.bmp",
+        "template": "nsis-template.nsi"
+      }
+    }
   },
   "plugins": {
     "updater": {
-      "pubkey": "COLE_AQUI_A_SUA_CHAVE_PUBLICA_DO_TAURI_SIGNER",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwMDczRjRCOTE1M0ZDMTcKVWxjWC9GT1JTejhIY0d0TmZsN3ZTaTBmbFdOR0VIaW8rczBnSkg1UUxaTlRoUWJOTE9CbFgyQ3AK",
       "endpoints": [
-        "https://github.com/skylineinfogamer/multitracks-stage-software/releases/latest/download/latest.json"
+        "https://worshiptools-28vv4k.cubehost.dev/updates/latest.json"
       ]
     }
   }

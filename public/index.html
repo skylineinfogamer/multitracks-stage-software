@@ -1,0 +1,1823 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Worship Playback Pro | Painel Administrativo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter','sans-serif'], mono: ['"JetBrains Mono"','monospace'] }
+        }
+      }
+    }
+  </script>
+  <style>
+    ::-webkit-scrollbar { width:7px; height:7px; }
+    ::-webkit-scrollbar-track { background:#020617; }
+    ::-webkit-scrollbar-thumb { background:#334155; border-radius:4px; }
+    ::-webkit-scrollbar-thumb:hover { background:#475569; }
+    .drop-zone-active { border-color:#10b981 !important; background-color:rgba(16,185,129,0.08) !important; }
+    .toast-enter { animation: toastIn .3s ease-out; }
+    .toast-exit { animation: toastOut .25s ease-in forwards; }
+    @keyframes toastIn { from { opacity:0; transform:translateY(-12px) scale(.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+    @keyframes toastOut { to { opacity:0; transform:translateY(-8px) scale(.96); } }
+    dialog::backdrop { background:rgba(2,6,23,0.85); backdrop-filter:blur(6px); }
+    dialog { border:none; padding:0; background:transparent; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans flex flex-col antialiased selection:bg-emerald-500 selection:text-white">
+
+<!-- Toast Container -->
+<div id="toastContainer" class="fixed top-4 right-4 z-[100] space-y-2 max-w-sm"></div>
+
+<!-- ════════════════════════ TELA DE LOGIN ADMIN ════════════════════════ -->
+<div id="loginScreen" class="min-h-screen flex items-center justify-center p-4 bg-slate-950 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(16,185,129,0.15),rgba(255,255,255,0))]">
+  <div class="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-3xl p-8 shadow-2xl backdrop-blur-xl space-y-6">
+    <div class="text-center space-y-2">
+      <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-xl shadow-emerald-500/25">
+        <i class="fa-solid fa-sliders text-white text-2xl"></i>
+      </div>
+      <h2 class="text-xl font-bold text-white tracking-tight">Worship Playback Pro</h2>
+      <p class="text-xs text-slate-400">Acesso Restrito ao Painel Administrativo</p>
+    </div>
+
+    <form id="adminLoginForm" onsubmit="event.preventDefault(); submitAdminLogin();" class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Usuário</label>
+        <div class="relative">
+          <i class="fa-solid fa-user absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+          <input 
+            type="text" 
+            id="loginUsername" 
+            required 
+            value="admin" 
+            placeholder="admin" 
+            class="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition font-mono"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Senha</label>
+        <div class="relative">
+          <i class="fa-solid fa-lock absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+          <input 
+            type="password" 
+            id="loginPassword" 
+            required 
+            placeholder="••••••••" 
+            class="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-9 pr-10 py-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition font-mono"
+          />
+          <button 
+            type="button" 
+            onclick="toggleLoginPassword()" 
+            class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer"
+          >
+            <i id="loginEyeIcon" class="fa-solid fa-eye text-xs"></i>
+          </button>
+        </div>
+      </div>
+
+      <div id="loginErrorMessage" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 flex items-center gap-2">
+        <i class="fa-solid fa-circle-exclamation shrink-0"></i>
+        <span id="loginErrorText">Usuário ou senha incorretos.</span>
+      </div>
+
+      <button 
+        type="submit" 
+        id="loginSubmitBtn"
+        class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3 rounded-xl shadow-lg shadow-emerald-500/25 transition flex items-center justify-center space-x-2 cursor-pointer text-xs uppercase tracking-wider"
+      >
+        <i id="loginBtnIcon" class="fa-solid fa-arrow-right-to-bracket"></i>
+        <span id="loginBtnText">Entrar na Plataforma</span>
+      </button>
+    </form>
+
+    <div class="pt-4 border-t border-slate-800 text-center text-[11px] text-slate-500 flex items-center justify-between">
+      <span>Painel Master v1.0</span>
+      <span class="flex items-center gap-1.5"><i class="fa-solid fa-shield-halved text-emerald-400"></i> Protegido</span>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════ DASHBOARD PRINCIPAL ════════════════════════ -->
+<div id="appDashboard" class="hidden flex-1 flex flex-col">
+
+<!-- Header -->
+<header class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+        <i class="fa-solid fa-sliders text-white text-lg"></i>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-base font-bold tracking-tight text-white">Worship Playback Pro</h1>
+          <span class="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2 py-0.5 rounded-full border border-emerald-500/20">Master Hub</span>
+        </div>
+        <p class="text-xs text-slate-400">B2 Sync · Membros · Planos & Assinaturas</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-3">
+      <div id="b2AccountBadge" class="hidden sm:flex items-center space-x-1.5 bg-slate-800/60 border border-slate-700/60 px-3 py-1 rounded-full text-xs text-slate-300">
+        <i class="fa-solid fa-cloud text-emerald-400 text-[11px]"></i>
+        <span id="b2AccountText">B2...</span>
+      </div>
+      <div class="flex items-center space-x-2 bg-slate-800/70 border border-slate-700/60 px-3 py-1.5 rounded-full shadow-inner">
+        <span class="relative flex h-2.5 w-2.5">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+        </span>
+        <span class="text-xs font-medium text-emerald-400 tracking-wide">Sistema Ativo</span>
+      </div>
+
+      <!-- Admin User Badge & Logout Button -->
+      <div class="flex items-center space-x-2 bg-slate-800/60 border border-slate-700/60 px-3 py-1.5 rounded-full text-xs text-slate-300">
+        <i class="fa-solid fa-user-shield text-emerald-400 text-xs"></i>
+        <span>admin</span>
+      </div>
+      <button onclick="logoutAdmin()" title="Encerrar sessão" class="flex items-center space-x-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer">
+        <i class="fa-solid fa-right-from-bracket text-[11px]"></i>
+        <span class="hidden sm:inline">Sair</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- Main -->
+<main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+  <!-- Top Main Navigation Tabs -->
+  <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3">
+    <div class="flex space-x-1.5 bg-slate-900/90 p-1.5 rounded-xl border border-slate-800">
+      <button onclick="switchMainTab('users')" id="mainTabUsers"
+        class="flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition bg-emerald-500 text-white shadow-md shadow-emerald-500/20 cursor-pointer">
+        <i class="fa-solid fa-users-gear"></i><span>Gestão de Membros</span>
+        <span id="pendingBadgeCount" class="bg-amber-400 text-slate-950 text-[11px] px-2 py-0.2 rounded-full font-bold animate-pulse">0</span>
+      </button>
+
+      <button onclick="switchMainTab('plans')" id="mainTabPlans"
+        class="flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-pointer">
+        <i class="fa-solid fa-cubes"></i><span>Planos & Assinaturas</span>
+        <span class="bg-emerald-500/20 text-emerald-300 text-[10px] px-1.5 py-0.2 rounded-full font-bold">5 Planos</span>
+      </button>
+
+      <button onclick="switchMainTab('b2')" id="mainTabB2"
+        class="flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-pointer">
+        <i class="fa-solid fa-cloud-arrow-up"></i><span>Sync Multitracks (B2)</span>
+      </button>
+    </div>
+
+    <div class="text-xs text-slate-400 flex items-center gap-2">
+      <button onclick="openSqlModal()" title="Configurar tabelas e planos no Supabase com SQL" class="flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg transition cursor-pointer font-semibold">
+        <i class="fa-solid fa-database text-xs"></i>
+        <span>SQL Tabelas</span>
+      </button>
+
+      <button onclick="document.getElementById('sbConfigModal').showModal()" id="sbIndicator" class="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-lg transition cursor-pointer">
+        <span id="sbStatusDot" class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+        <span id="sbStatusText" class="text-slate-200">Supabase</span>
+        <i class="fa-solid fa-gear text-slate-500 text-[10px] ml-1"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- ════════════════════════ TAB 1: GESTÃO DE MEMBROS ════════════════════════ -->
+  <div id="sectionUsers" class="space-y-6">
+
+    <!-- Quick Stats Cards (Clicáveis para filtrar imediatamente!) -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div onclick="setFilterStatus('all')" class="bg-slate-900 hover:bg-slate-850 border border-slate-800 rounded-2xl p-4 shadow-lg flex items-center justify-between cursor-pointer transition">
+        <div>
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Total Membros</p>
+          <h3 id="statTotal" class="text-2xl font-bold text-white mt-1">0</h3>
+        </div>
+        <div class="w-10 h-10 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-users"></i>
+        </div>
+      </div>
+
+      <div onclick="setFilterStatus('pending')" class="bg-slate-900 hover:bg-amber-500/5 border border-amber-500/30 rounded-2xl p-4 shadow-lg flex items-center justify-between cursor-pointer transition">
+        <div>
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-amber-400">Aguardando Aprovação</p>
+          <h3 id="statPending" class="text-2xl font-bold text-amber-400 mt-1">0</h3>
+        </div>
+        <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-clock-rotate-left"></i>
+        </div>
+      </div>
+
+      <div onclick="setFilterStatus('approved')" class="bg-slate-900 hover:bg-emerald-500/5 border border-emerald-500/30 rounded-2xl p-4 shadow-lg flex items-center justify-between cursor-pointer transition">
+        <div>
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">Aprovados / Ativos</p>
+          <h3 id="statApproved" class="text-2xl font-bold text-emerald-400 mt-1">0</h3>
+        </div>
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-circle-check"></i>
+        </div>
+      </div>
+
+      <div onclick="setFilterStatus('blocked')" class="bg-slate-900 hover:bg-rose-500/5 border border-rose-500/30 rounded-2xl p-4 shadow-lg flex items-center justify-between cursor-pointer transition">
+        <div>
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-rose-400">Bloqueados</p>
+          <h3 id="statBlocked" class="text-2xl font-bold text-rose-400 mt-1">0</h3>
+        </div>
+        <div class="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-user-lock"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters & Action Bar -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <!-- Search -->
+      <div class="relative flex-1 max-w-md">
+        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+        <input 
+          type="text" 
+          id="searchQuery" 
+          oninput="renderFilteredMembers()"
+          placeholder="Buscar por nome, e-mail ou cargo..." 
+          class="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-9 pr-3.5 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+        />
+      </div>
+
+      <!-- Filter Buttons & Add Button -->
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+          <button onclick="setFilterStatus('all')" id="filterStatusAll" class="px-3 py-1.5 rounded-lg font-medium bg-emerald-500 text-white cursor-pointer transition">Todos</button>
+          <button onclick="setFilterStatus('pending')" id="filterStatusPending" class="px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white cursor-pointer transition flex items-center gap-1.5">
+            <span>Pendentes</span>
+            <span id="filterPendingCount" class="w-4 h-4 rounded-full bg-amber-400 text-slate-950 text-[10px] font-bold inline-flex items-center justify-center">0</span>
+          </button>
+          <button onclick="setFilterStatus('approved')" id="filterStatusApproved" class="px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white cursor-pointer transition">Aprovados</button>
+          <button onclick="setFilterStatus('blocked')" id="filterStatusBlocked" class="px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white cursor-pointer transition">Bloqueados</button>
+        </div>
+
+        <button onclick="loadUsers()" title="Atualizar lista" class="p-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition cursor-pointer">
+          <i class="fa-solid fa-arrows-rotate text-xs"></i>
+        </button>
+
+        <button onclick="openSqlModal()" title="Gerar e copiar Script SQL para configurar tabelas no Supabase" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-1.5">
+          <i class="fa-solid fa-database text-emerald-400"></i>
+          <span class="hidden sm:inline">SQL Supabase</span>
+        </button>
+
+        <button onclick="openAddUserModal()" class="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-500/20 transition cursor-pointer flex items-center gap-1.5">
+          <i class="fa-solid fa-user-plus"></i>
+          <span>Novo Membro</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Users Table -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-left">
+          <thead>
+            <tr class="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase text-[10px] tracking-wider">
+              <th class="px-5 py-3.5">Membro</th>
+              <th class="px-5 py-3.5">Cargo / Função</th>
+              <th class="px-5 py-3.5">Plano & Assinatura (Clique para Mudar)</th>
+              <th class="px-5 py-3.5">Status de Acesso</th>
+              <th class="px-5 py-3.5">Cadastro</th>
+              <th class="px-5 py-3.5 text-right">Ações de Controle</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody" class="divide-y divide-slate-800/60 font-sans">
+            <tr>
+              <td colspan="6" class="px-5 py-12 text-center text-slate-400">
+                <i class="fa-solid fa-circle-notch fa-spin mr-2 text-emerald-400"></i> Carregando membros...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="px-5 py-3 border-t border-slate-800/80 bg-slate-950/40 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+        <span id="membersTableSummary">0 membros listados</span>
+        <span id="dataSourceBadge" class="flex items-center gap-1.5">
+          <i class="fa-solid fa-shield-halved text-emerald-400"></i> Supabase Auth Admin
+        </span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════════ TAB 2: PLANOS & ASSINATURAS ════════════════════════ -->
+  <div id="sectionPlans" class="hidden space-y-6">
+
+    <!-- Top Info Banner -->
+    <div class="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div>
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-cubes text-emerald-400"></i> Catálogo de Planos e Controle de Assinaturas
+        </h2>
+        <p class="text-xs text-slate-400 mt-1 max-w-2xl">
+          Selecione qualquer plano abaixo para atribuir diretamente a um membro da equipe ou alterar a assinatura.
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="openSqlModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-600/20">
+          <i class="fa-solid fa-database"></i> Script SQL Tabela Supabase
+        </button>
+        <button onclick="seedPlansDirectly()" id="seedPlansBtn" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer">
+          <i class="fa-solid fa-cloud-arrow-up text-emerald-400"></i> Gravar Planos no Supabase
+        </button>
+        <button onclick="loadPlans()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer">
+          <i class="fa-solid fa-arrows-rotate text-emerald-400"></i> Atualizar
+        </button>
+      </div>
+    </div>
+
+    <!-- Plans Cards Grid -->
+    <div id="plansGrid" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Populado dinamicamente -->
+    </div>
+
+  </div>
+
+  <!-- ════════════════════════ TAB 3: SYNC B2 ════════════════════════ -->
+  <div id="sectionB2" class="hidden space-y-5">
+    <div class="flex space-x-1.5 bg-slate-900/60 p-1 rounded-lg border border-slate-800 mb-5 w-fit">
+      <button onclick="switchB2Tab('sync')" id="b2TabSync" class="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-500 text-white cursor-pointer">Sincronizar Pasta</button>
+      <button onclick="switchB2Tab('upload')" id="b2TabUpload" class="px-3 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer">Upload Avulso</button>
+      <button onclick="switchB2Tab('auth')" id="b2TabAuth" class="px-3 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer">Conexão B2</button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <!-- Left: B2 panels -->
+      <div class="lg:col-span-5 space-y-5">
+        <!-- Sync Panel -->
+        <section id="b2PanelSync" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h3 class="text-sm font-semibold text-slate-200 flex items-center gap-2"><i class="fa-solid fa-folder-tree text-emerald-400"></i> Sincronização em Lote</h3>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5"><i class="fa-solid fa-folder-open text-emerald-400 mr-1"></i>Diretório Local</label>
+              <input type="text" id="localDir" value="D:\multitracks" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-sm font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5"><i class="fa-solid fa-server text-emerald-400 mr-1"></i>Bucket B2</label>
+              <div class="relative flex items-center">
+                <span class="absolute left-3 text-xs text-slate-400 font-mono select-none">b2://</span>
+                <input type="text" id="syncBucketName" value="worship-playback-vs" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-11 pr-3 py-2 text-sm font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3 pt-1">
+              <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5"><i class="fa-solid fa-gauge-high text-emerald-400 mr-1"></i>Threads</label>
+                <select id="syncThreads" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-2 text-xs font-sans text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer">
+                  <option value="2" selected>2 Threads (Recomendado)</option>
+                  <option value="1">1 Thread (Estabilidade Máxima)</option>
+                  <option value="4">4 Threads (Conexão Rápida)</option>
+                </select>
+              </div>
+              <div class="flex items-end">
+                <button type="button" onclick="cancelUnfinishedUploads()" title="Cancela uploads de arquivos grandes que foram interrompidos" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg py-2 px-2 text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer">
+                  <i class="fa-solid fa-broom text-amber-400"></i> Limpar Incompletos
+                </button>
+              </div>
+            </div>
+          </div>
+          <button onclick="startSyncFolder()" id="syncBtn" class="w-full group bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-500/25 transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+            <i id="syncBtnIcon" class="fa-solid fa-arrows-rotate text-base transition-transform group-hover:rotate-180 duration-500"></i>
+            <span id="syncBtnText">Iniciar Sincronização</span>
+          </button>
+        </section>
+
+        <!-- Upload Panel -->
+        <section id="b2PanelUpload" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h3 class="text-sm font-semibold text-slate-200 flex items-center gap-2"><i class="fa-solid fa-cloud-arrow-up text-emerald-400"></i> Upload Avulso</h3>
+          </div>
+          <div id="dropZone" onclick="document.getElementById('fileInput').click()" class="border-2 border-dashed border-slate-700 hover:border-emerald-500/80 bg-slate-950/60 rounded-xl p-5 text-center cursor-pointer transition group flex flex-col items-center space-y-2">
+            <input type="file" id="fileInput" class="hidden" onchange="handleFileSelect(event)"/>
+            <div class="w-10 h-10 rounded-full bg-slate-800 group-hover:bg-emerald-500/20 text-slate-400 group-hover:text-emerald-400 flex items-center justify-center transition"><i class="fa-solid fa-file-arrow-up text-lg"></i></div>
+            <p class="text-xs font-medium text-slate-200 group-hover:text-emerald-400 transition">Clique ou arraste um arquivo</p>
+            <p class="text-[10px] text-slate-500">.zip, .wav, .mp3, .m4a, stems, etc.</p>
+          </div>
+          <div id="fileSelectedCard" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+            <div class="flex items-center space-x-3 overflow-hidden">
+              <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-file-audio text-sm"></i></div>
+              <div class="truncate"><p id="selectedFileName" class="text-xs font-semibold text-slate-200 truncate font-mono">file.zip</p><p id="selectedFileSize" class="text-[10px] text-slate-400">0 MB</p></div>
+            </div>
+            <button onclick="clearSelectedFile()" class="text-slate-400 hover:text-rose-400 text-xs p-1"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-[10px] font-semibold uppercase text-slate-300 mb-1">Bucket B2</label><input type="text" id="uploadBucket" value="worship-playback-vs" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"/></div>
+            <div><label class="block text-[10px] font-semibold uppercase text-slate-300 mb-1">Subpasta (Opcional)</label><input type="text" id="remoteFolder" placeholder="cultos/2026" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"/></div>
+          </div>
+          <div id="uploadProgressContainer" class="hidden space-y-1">
+            <div class="flex justify-between text-xs text-slate-300"><span id="uploadProgressStatus">Enviando...</span><span id="uploadProgressPercent" class="font-mono text-emerald-400 font-semibold">0%</span></div>
+            <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800"><div id="uploadProgressBar" class="bg-emerald-500 h-1.5 rounded-full transition-all duration-150" style="width:0%"></div></div>
+          </div>
+          <button onclick="startUploadFile()" id="uploadBtn" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-500/25 transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+            <i id="uploadBtnIcon" class="fa-solid fa-cloud-arrow-up text-base"></i><span id="uploadBtnText">Enviar Arquivo</span>
+          </button>
+        </section>
+
+        <!-- Auth Panel -->
+        <section id="b2PanelAuth" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h3 class="text-sm font-semibold text-slate-200 flex items-center gap-2"><i class="fa-solid fa-key text-emerald-400"></i> Conexão B2</h3>
+          </div>
+          <div id="authStatusBox" class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono space-y-1">
+            <div class="flex items-center justify-between"><span class="text-slate-400">Status:</span><span id="authStatusBadge" class="text-emerald-400 font-bold">Verificando...</span></div>
+            <div class="text-[11px] text-slate-400 truncate" id="authDetails">Aguardando...</div>
+          </div>
+          <form onsubmit="event.preventDefault(); authorizeB2Account();" class="space-y-3">
+            <div><label class="block text-xs font-semibold uppercase text-slate-300 mb-1">Key ID</label><input type="text" id="keyId" placeholder="0053f8d54a..." class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"/></div>
+            <div><label class="block text-xs font-semibold uppercase text-slate-300 mb-1">Application Key</label><input type="password" id="appKey" placeholder="K005Oq/5o..." class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"/></div>
+            <button type="submit" id="authBtn" class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold py-2 px-4 rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer">
+              <i class="fa-solid fa-plug text-emerald-400"></i><span>Autorizar</span>
+            </button>
+          </form>
+        </section>
+      </div>
+
+      <!-- Right: Terminal -->
+      <section class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+          <div class="flex items-center space-x-3">
+            <div class="flex space-x-1.5"><span class="w-3 h-3 rounded-full bg-rose-500/80"></span><span class="w-3 h-3 rounded-full bg-amber-500/80"></span><span class="w-3 h-3 rounded-full bg-emerald-500/80"></span></div>
+            <h3 class="text-xs font-semibold text-slate-200 font-mono flex items-center gap-1.5"><i class="fa-solid fa-terminal text-slate-400 text-[10px]"></i>Console de Execução</h3>
+          </div>
+          <button onclick="clearTerminal()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-2 py-1 rounded-md border border-slate-700 transition flex items-center gap-1 cursor-pointer"><i class="fa-solid fa-trash-can text-slate-400"></i>Limpar</button>
+        </div>
+        <div id="terminalWindow" class="flex-1 bg-black/90 border border-slate-800/90 rounded-xl p-4 font-mono text-xs text-slate-300 overflow-y-auto min-h-[400px] max-h-[540px] shadow-inner space-y-1.5 leading-relaxed">
+          <div class="text-slate-400">[SISTEMA] Console pronto.</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+</main>
+
+<!-- Footer -->
+<footer class="border-t border-slate-800/80 py-3 bg-slate-900/40 mt-auto">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between text-xs text-slate-400">
+    <span>Worship Playback Pro &copy; 2026</span>
+    <span><i class="fa-brands fa-python text-emerald-400"></i> Flask + Supabase + B2</span>
+  </div>
+</footer>
+</div> <!-- /#appDashboard -->
+
+<!-- ════════════════════════ MODAL: Configurar Supabase Key ════════════════════════ -->
+<dialog id="sbConfigModal" class="rounded-2xl w-full max-w-md">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <i class="fa-solid fa-key text-emerald-400"></i> Configurar Chave Supabase
+      </h3>
+      <button onclick="document.getElementById('sbConfigModal').close()" class="text-slate-400 hover:text-white transition cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="text-xs text-slate-300 space-y-2">
+      <p>Cole abaixo a sua <strong>Service Role Key</strong> do Supabase (obtida em <em>Project Settings → API → service_role</em>) para sincronização na nuvem em tempo real.</p>
+      <input type="password" id="modalServiceKey" placeholder="eyJh..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      <div class="pt-1">
+        <button type="button" onclick="document.getElementById('sbConfigModal').close(); openSqlModal();" class="text-[11px] text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1 cursor-pointer">
+          <i class="fa-solid fa-database"></i> Criar/Configurar Tabelas no Supabase (Script SQL)
+        </button>
+      </div>
+    </div>
+    <div class="flex gap-2 pt-2 border-t border-slate-800">
+      <button onclick="saveServiceKeyFromModal()" class="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-2.5 rounded-xl text-xs transition cursor-pointer">
+        Salvar e Conectar
+      </button>
+      <button onclick="document.getElementById('sbConfigModal').close()" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs rounded-xl transition cursor-pointer">Cancelar</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ════════════════════════ MODAL: Script SQL para o Supabase ════════════════════════ -->
+<dialog id="sqlModal" class="rounded-2xl w-full max-w-2xl bg-slate-900 border border-slate-700 text-slate-100 shadow-2xl p-0 backdrop:bg-black/75">
+  <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg">
+        <i class="fa-solid fa-database"></i>
+      </div>
+      <div>
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          Script SQL Supabase
+          <span class="text-[10px] bg-emerald-500/20 text-emerald-300 font-mono px-2 py-0.5 rounded-full font-bold uppercase">Planos & Membros</span>
+        </h3>
+        <p class="text-xs text-slate-400 mt-0.5">Cria tabelas <code class="text-emerald-400">plans</code> e <code class="text-emerald-400">profiles</code>, permissões RLS e sincroniza clientes de auth.users.</p>
+      </div>
+    </div>
+    <button onclick="document.getElementById('sqlModal').close()" class="text-slate-400 hover:text-white transition cursor-pointer">
+      <i class="fa-solid fa-xmark text-lg"></i>
+    </button>
+  </div>
+
+  <div class="p-5 space-y-4 max-h-[62vh] overflow-y-auto">
+    <div class="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5 flex items-start gap-3 text-xs text-amber-200/90">
+      <i class="fa-solid fa-circle-info text-amber-400 text-base mt-0.5 shrink-0"></i>
+      <div>
+        <p class="font-semibold text-amber-300">Como executar no seu Supabase:</p>
+        <p class="mt-1">1. Clique em <strong>"Copiar SQL"</strong> abaixo.</p>
+        <p>2. Abra o <a href="https://supabase.com/dashboard/project/ljrxnooemnfssqdlorgt/sql/new" target="_blank" class="underline text-amber-300 hover:text-white font-semibold">SQL Editor do seu projeto Supabase</a>.</p>
+        <p>3. Cole e clique no botão verde <strong>"RUN"</strong>. Todos os planos e clientes serão sincronizados automaticamente!</p>
+      </div>
+    </div>
+
+    <div class="relative">
+      <div class="flex items-center justify-between bg-slate-950 px-4 py-2 border-t border-x border-slate-800 rounded-t-xl text-xs font-mono text-slate-400">
+        <span class="flex items-center gap-2"><i class="fa-solid fa-code text-emerald-400"></i> setup_worship_playback.sql</span>
+        <button type="button" onclick="copySqlCode()" id="copySqlBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] px-3 py-1 rounded-md transition flex items-center gap-1.5 cursor-pointer">
+          <i class="fa-solid fa-copy"></i> <span>Copiar SQL</span>
+        </button>
+      </div>
+      <textarea id="sqlCodeContent" readonly rows="12" class="w-full bg-slate-950/90 border border-slate-800 rounded-b-xl p-3.5 font-mono text-[11px] leading-relaxed text-slate-200 focus:outline-none resize-none select-all"></textarea>
+    </div>
+  </div>
+
+  <div class="p-4 bg-slate-950/60 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+    <a href="https://supabase.com/dashboard/project/ljrxnooemnfssqdlorgt/sql/new" target="_blank" class="text-xs text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1.5">
+      <i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir SQL Editor no Supabase Dashboard
+    </a>
+    <div class="flex gap-2 w-full sm:w-auto">
+      <button type="button" onclick="document.getElementById('sqlModal').close()" class="flex-1 sm:flex-none px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs rounded-xl transition cursor-pointer">Fechar</button>
+      <button type="button" onclick="copySqlCode()" class="flex-1 sm:flex-none px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition cursor-pointer flex items-center justify-center gap-1.5">
+        <i class="fa-solid fa-copy"></i> Copiar Código
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ════════════════════════ MODAL: Adicionar Novo Membro ════════════════════════ -->
+<dialog id="userModal" class="rounded-2xl w-full max-w-md">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <h3 id="modalTitle" class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-user-plus text-emerald-400"></i>Adicionar Novo Membro</h3>
+      <button onclick="document.getElementById('userModal').close()" class="text-slate-400 hover:text-white transition cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="userForm" onsubmit="event.preventDefault(); submitUserForm();" class="space-y-3.5">
+      <input type="hidden" id="editUserId" value=""/>
+      
+      <div>
+        <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">Nome Completo</label>
+        <input type="text" id="userName" placeholder="Ex: Samuel Santos" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      </div>
+
+      <div>
+        <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">E-mail <span class="text-rose-400">*</span></label>
+        <input type="email" id="userEmail" required placeholder="samuel@louvor.com" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      </div>
+
+      <div id="passwordField">
+        <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">Senha Inicial <span class="text-rose-400">*</span></label>
+        <input type="password" id="userPassword" minlength="6" placeholder="Mínimo 6 caracteres" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">Cargo / Função</label>
+          <select id="userRole" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <option value="Líder de Louvor">Líder de Louvor</option>
+            <option value="Tecladista" selected>Tecladista</option>
+            <option value="Músico">Músico</option>
+            <option value="Guitarrista">Guitarrista</option>
+            <option value="Baterista">Baterista</option>
+            <option value="Baixista">Baixista</option>
+            <option value="Vocalista">Vocalista</option>
+            <option value="Sonoplasta">Sonoplasta</option>
+            <option value="Pastor">Pastor</option>
+            <option value="Administrador">Administrador</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">Status Inicial</label>
+          <select id="userInitialStatus" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <option value="Pendente" selected>🟡 Pendente (Aprovar depois)</option>
+            <option value="Aprovado">🟢 Aprovado (Ativo Imediato)</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="planSelectionField">
+        <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">Selecione o Plano Inicial</label>
+        <select id="userInitialPlan" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          <!-- Populado dinamicamente -->
+        </select>
+      </div>
+
+      <div class="flex items-center gap-2 pt-2 border-t border-slate-800">
+        <button type="submit" id="modalSubmitBtn" class="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-2.5 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5">
+          <i id="modalSubmitIcon" class="fa-solid fa-check"></i><span id="modalSubmitText">Criar Membro</span>
+        </button>
+        <button type="button" onclick="document.getElementById('userModal').close()" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition cursor-pointer">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- ════════════════════════ MODAL: Gerenciar Plano e Assinatura ════════════════════════ -->
+<dialog id="planModal" class="rounded-2xl w-full max-w-lg">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div>
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-gem text-emerald-400"></i> Selecionar Plano & Assinatura
+        </h3>
+        <p id="planModalMemberEmail" class="text-xs text-slate-400 font-mono mt-0.5">membro@igreja.com</p>
+      </div>
+      <button onclick="document.getElementById('planModal').close()" class="text-slate-400 hover:text-white transition cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <form onsubmit="event.preventDefault(); submitPlanForm();" class="space-y-4">
+      <input type="hidden" id="planMemberId" value=""/>
+
+      <!-- Escolha Visual de Planos -->
+      <div>
+        <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-2">
+          Escolha um dos Planos Disponíveis:
+        </label>
+        <div id="planOptionCards" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+          <!-- Populado dinamicamente com cards selecionáveis -->
+        </div>
+        <input type="hidden" id="selectedPlanRadio" value="assinatura_app"/>
+      </div>
+
+      <!-- Status da Assinatura -->
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">Status da Assinatura</label>
+          <select id="subStatusSelect" class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <option value="Ativa">🟢 Ativa (Liberada)</option>
+            <option value="Trial">🔵 Período de Teste (Trial)</option>
+            <option value="Pendente">🟡 Aguardando Pagamento</option>
+            <option value="Expirada">🔴 Expirada / Vencida</option>
+            <option value="Bloqueada">⛔ Bloqueada</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">Data de Vencimento</label>
+          <input type="date" id="planExpiresInput" class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+        </div>
+      </div>
+
+      <!-- Atalhos rápidos de validade -->
+      <div class="flex items-center gap-1.5 pt-1">
+        <span class="text-[10px] text-slate-400">Atalhos:</span>
+        <button type="button" onclick="setExpirationDays(30)" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded-lg border border-slate-700 cursor-pointer">+30 Dias</button>
+        <button type="button" onclick="setExpirationDays(90)" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded-lg border border-slate-700 cursor-pointer">+3 Meses</button>
+        <button type="button" onclick="setExpirationDays(365)" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded-lg border border-slate-700 cursor-pointer">+1 Ano</button>
+        <button type="button" onclick="setExpirationDays(3650)" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded-lg border border-slate-700 cursor-pointer">Vitalício</button>
+      </div>
+
+      <div class="flex items-center gap-2 pt-3 border-t border-slate-800">
+        <button type="submit" id="planSubmitBtn" class="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-2.5 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/25">
+          <i class="fa-solid fa-floppy-disk"></i> Salvar e Aplicar Plano
+        </button>
+        <button type="button" onclick="document.getElementById('planModal').close()" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition cursor-pointer">Fechar</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- ════════════════════════ MODAL: Atribuir Plano a partir da Aba de Planos ════════════════════════ -->
+<dialog id="assignPlanModal" class="rounded-2xl w-full max-w-md">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div>
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-user-check text-emerald-400"></i> Atribuir Plano ao Membro
+        </h3>
+        <p id="assignPlanModalTitle" class="text-xs text-emerald-400 font-semibold mt-0.5">Plano</p>
+      </div>
+      <button onclick="document.getElementById('assignPlanModal').close()" class="text-slate-400 hover:text-white transition cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <form onsubmit="event.preventDefault(); submitAssignPlan();" class="space-y-4">
+      <input type="hidden" id="assignTargetPlanId" value=""/>
+      <input type="hidden" id="assignTargetPlanName" value=""/>
+
+      <div>
+        <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Escolha o Membro que receberá este plano:</label>
+        <select id="assignMemberSelect" class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          <!-- Populado com a lista de membros -->
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Status da Assinatura</label>
+        <select id="assignSubStatus" class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          <option value="Ativa" selected>🟢 Ativa (Liberada)</option>
+          <option value="Trial">🔵 Período de Teste (Trial)</option>
+        </select>
+      </div>
+
+      <div class="flex items-center gap-2 pt-2 border-t border-slate-800">
+        <button type="submit" id="assignSubmitBtn" class="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-2.5 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5">
+          <i class="fa-solid fa-check"></i> Confirmar Atribuição
+        </button>
+        <button type="button" onclick="document.getElementById('assignPlanModal').close()" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs rounded-xl transition cursor-pointer">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- ════════════════════════ MODAL: Confirm Delete ════════════════════════ -->
+<dialog id="deleteModal" class="rounded-2xl w-full max-w-sm">
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4 text-center">
+    <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto"><i class="fa-solid fa-triangle-exclamation text-xl"></i></div>
+    <h3 class="text-base font-bold text-white">Remover Membro?</h3>
+    <p class="text-xs text-slate-400">Esta ação irá remover permanentemente o usuário <strong id="deleteUserEmail" class="text-white">—</strong>.</p>
+    <div class="flex gap-3 pt-2">
+      <button onclick="confirmDeleteUser()" id="deleteConfirmBtn" class="flex-1 bg-rose-500 hover:bg-rose-600 text-white font-semibold py-2.5 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5">
+        <i class="fa-solid fa-trash-can"></i>Remover
+      </button>
+      <button onclick="document.getElementById('deleteModal').close()" class="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold py-2.5 rounded-xl text-xs transition cursor-pointer">Cancelar</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// Estado da Aplicação
+// ═══════════════════════════════════════════════════════════════
+let allMembers = [];
+let allPlans = [];
+let currentFilterStatus = 'all';
+let pendingDeleteUserId = null;
+let currentSelectedFile = null;
+const terminal = document.getElementById('terminalWindow');
+
+// Utilitários de status
+function isPending(s) {
+  const v = String(s || '').toLowerCase().trim();
+  return v === 'pendente' || v === 'pending';
+}
+function isApproved(s) {
+  const v = String(s || '').toLowerCase().trim();
+  return v === 'aprovado' || v === 'active' || v === 'ativo';
+}
+function isBlocked(s) {
+  const v = String(s || '').toLowerCase().trim();
+  return v === 'bloqueado' || v === 'blocked' || v === 'rejected';
+}
+
+function ts() { return new Date().toTimeString().split(' ')[0]; }
+function esc(t) { return !t ? '' : String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtBytes(b,d=1) { if(!+b) return '0 B'; const k=1024,s=['B','KB','MB','GB','TB'],i=Math.floor(Math.log(b)/Math.log(k)); return parseFloat((b/Math.pow(k,i)).toFixed(d))+' '+s[i]; }
+
+function fmtDate(iso) {
+  if (!iso || iso === 'None' || iso === '') return '—';
+  try {
+    const d = new Date(iso);
+    return isNaN(d) ? '—' : d.toLocaleDateString('pt-BR', {day:'2-digit',month:'short',year:'numeric'});
+  } catch { return '—'; }
+}
+
+function fmtPrice(cents) {
+  if (!cents || cents === 0) return 'Gratuito';
+  return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function toast(msg, type='success') {
+  const c = document.getElementById('toastContainer');
+  const colors = { 
+    success:'border-emerald-500/30 bg-emerald-500/10 text-emerald-300', 
+    error:'border-rose-500/30 bg-rose-500/10 text-rose-300', 
+    warning:'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    info:'border-slate-600 bg-slate-800 text-slate-200' 
+  };
+  const icons = { success:'circle-check', error:'circle-xmark', warning:'triangle-exclamation', info:'circle-info' };
+  const el = document.createElement('div');
+  el.className = `toast-enter border rounded-xl px-4 py-3 text-xs font-medium flex items-center gap-2 shadow-xl backdrop-blur-md ${colors[type]||colors.info}`;
+  el.innerHTML = `<i class="fa-solid fa-${icons[type]||icons.info} text-sm"></i><span>${esc(msg)}</span>`;
+  c.appendChild(el);
+  setTimeout(() => { el.classList.replace('toast-enter','toast-exit'); setTimeout(() => el.remove(), 300); }, 4000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Navegação Principal de Abas
+// ═══════════════════════════════════════════════════════════════
+function switchMainTab(tab) {
+  const activeClass = 'flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition bg-emerald-500 text-white shadow-md shadow-emerald-500/20 cursor-pointer';
+  const idleClass = 'flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-pointer';
+
+  document.getElementById('mainTabUsers').className = tab==='users' ? activeClass : idleClass;
+  document.getElementById('mainTabPlans').className = tab==='plans' ? activeClass : idleClass;
+  document.getElementById('mainTabB2').className = tab==='b2' ? activeClass : idleClass;
+
+  document.getElementById('sectionUsers').classList.toggle('hidden', tab!=='users');
+  document.getElementById('sectionPlans').classList.toggle('hidden', tab!=='plans');
+  document.getElementById('sectionB2').classList.toggle('hidden', tab!=='b2');
+
+  if (tab === 'users') { checkSupabaseStatus(); loadUsers(); }
+  if (tab === 'plans') { loadPlans(); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Supabase: Verificação de Status
+// ═══════════════════════════════════════════════════════════════
+async function checkSupabaseStatus() {
+  try {
+    const r = await fetch('/api/supabase/status');
+    const d = await r.json();
+    const dot = document.getElementById('sbStatusDot');
+    const txt = document.getElementById('sbStatusText');
+    const badge = document.getElementById('dataSourceBadge');
+
+    if (d.connected) {
+      dot.className = 'w-2 h-2 rounded-full bg-emerald-400 inline-block';
+      txt.innerText = 'Supabase Conectado';
+      badge.innerHTML = `<i class="fa-solid fa-cloud text-emerald-400"></i> Supabase Cloud`;
+    } else {
+      dot.className = 'w-2 h-2 rounded-full bg-amber-400 inline-block';
+      txt.innerText = 'Modo Local Ativo';
+      badge.innerHTML = `<i class="fa-solid fa-hard-drive text-amber-400"></i> Base Local Ativa`;
+    }
+  } catch {}
+}
+
+async function saveServiceKeyFromModal() {
+  const key = document.getElementById('modalServiceKey').value.trim();
+  if (!key) { toast('Cole a Service Role Key.', 'error'); return; }
+  try {
+    const r = await fetch('/api/supabase/configure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service_key: key })
+    });
+    const d = await r.json();
+    toast(d.message, d.success ? 'success' : 'error');
+    if (d.success) {
+      document.getElementById('sbConfigModal').close();
+      checkSupabaseStatus();
+      loadUsers();
+      loadPlans();
+    }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Gestão de Membros & Filtros
+// ═══════════════════════════════════════════════════════════════
+async function loadUsers() {
+  const tbody = document.getElementById('usersTableBody');
+  tbody.innerHTML = '<tr><td colspan="6" class="px-5 py-12 text-center text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-2 text-emerald-400"></i> Carregando membros...</td></tr>';
+  
+  try {
+    const r = await fetch('/api/users');
+    if (r.status === 401) {
+      showLogin();
+      return;
+    }
+    const d = await r.json();
+
+    if (!d.success) {
+      tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-10 text-center text-amber-400"><i class="fa-solid fa-triangle-exclamation mr-2"></i>${esc(d.message)}</td></tr>`;
+      return;
+    }
+
+    allMembers = d.users || [];
+    updateStats();
+    renderFilteredMembers();
+    populateAssignMemberSelect();
+
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-10 text-center text-rose-400"><i class="fa-solid fa-circle-xmark mr-2"></i>Erro ao carregar lista: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function updateStats() {
+  const total = allMembers.length;
+  const approved = allMembers.filter(m => isApproved(m.status)).length;
+  const pending = allMembers.filter(m => isPending(m.status)).length;
+  const blocked = allMembers.filter(m => isBlocked(m.status)).length;
+
+  document.getElementById('statTotal').innerText = total;
+  document.getElementById('statApproved').innerText = approved;
+  document.getElementById('statPending').innerText = pending;
+  document.getElementById('statBlocked').innerText = blocked;
+
+  document.getElementById('filterPendingCount').innerText = pending;
+
+  const pendingBadge = document.getElementById('pendingBadgeCount');
+  if (pending > 0) {
+    pendingBadge.innerText = `${pending} Pendente${pending !== 1 ? 's' : ''}`;
+    pendingBadge.classList.remove('hidden');
+  } else {
+    pendingBadge.classList.add('hidden');
+  }
+}
+
+function setFilterStatus(status) {
+  currentFilterStatus = status;
+  const activeBtn = 'px-3 py-1.5 rounded-lg font-medium bg-emerald-500 text-white cursor-pointer transition';
+  const idleBtn = 'px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white cursor-pointer transition';
+
+  document.getElementById('filterStatusAll').className = status==='all' ? activeBtn : idleBtn;
+  document.getElementById('filterStatusPending').className = status==='pending' ? activeBtn : idleBtn;
+  document.getElementById('filterStatusApproved').className = status==='approved' ? activeBtn : idleBtn;
+  document.getElementById('filterStatusBlocked').className = status==='blocked' ? activeBtn : idleBtn;
+
+  renderFilteredMembers();
+}
+
+function renderFilteredMembers() {
+  const tbody = document.getElementById('usersTableBody');
+  const query = document.getElementById('searchQuery').value.toLowerCase().trim();
+
+  const filtered = allMembers.filter(m => {
+    // Filtro de status
+    if (currentFilterStatus === 'pending' && !isPending(m.status)) return false;
+    if (currentFilterStatus === 'approved' && !isApproved(m.status)) return false;
+    if (currentFilterStatus === 'blocked' && !isBlocked(m.status)) return false;
+
+    // Filtro de busca
+    if (query) {
+      const name = (m.name || '').toLowerCase();
+      const email = (m.email || '').toLowerCase();
+      const role = (m.role || '').toLowerCase();
+      const plan = (m.plan_name || '').toLowerCase();
+      if (!name.includes(query) && !email.includes(query) && !role.includes(query) && !plan.includes(query)) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('membersTableSummary').innerText = `${filtered.length} de ${allMembers.length} membros`;
+
+  if (filtered.length === 0) {
+    if (allMembers.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="px-5 py-14 text-center text-slate-400">
+            <div class="max-w-md mx-auto space-y-3">
+              <div class="w-12 h-12 mx-auto rounded-2xl bg-slate-800/80 border border-slate-700 text-slate-400 flex items-center justify-center text-xl shadow-inner">
+                <i class="fa-solid fa-users"></i>
+              </div>
+              <h4 class="text-sm font-bold text-slate-200">Nenhum membro encontrado no Supabase</h4>
+              <p class="text-xs text-slate-400 leading-relaxed">
+                A lista está limpa e sincronizada com o Supabase. Se você já tem usuários cadastrados em <code class="text-emerald-400">auth.users</code>, execute o script SQL para carregá-los imediatamente.
+              </p>
+              <div class="flex flex-wrap items-center justify-center gap-2 pt-2">
+                <button onclick="openSqlModal()" class="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-semibold text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm">
+                  <i class="fa-solid fa-database"></i> Script SQL Supabase
+                </button>
+                <button onclick="openAddUserModal()" class="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-emerald-500/20">
+                  <i class="fa-solid fa-user-plus"></i> Novo Membro
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `;
+    } else {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="px-5 py-12 text-center text-slate-400">
+            <i class="fa-solid fa-filter text-slate-600 text-2xl block mb-2"></i>
+            Nenhum membro encontrado para o filtro selecionado (${currentFilterStatus.toUpperCase()}).
+            <div class="mt-2">
+              <button onclick="setFilterStatus('all')" class="text-xs text-emerald-400 hover:underline">Ver todos os membros</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(u => {
+    // Badges de Status
+    let statusBadge = '';
+    if (isApproved(u.status)) {
+      statusBadge = `<span class="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>Aprovado</span>`;
+    } else if (isPending(u.status)) {
+      statusBadge = `<span class="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20"><i class="fa-solid fa-clock text-[10px]"></i>Pendente</span>`;
+    } else {
+      statusBadge = `<span class="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20"><i class="fa-solid fa-ban text-[10px]"></i>Bloqueado</span>`;
+    }
+
+    // Badges de Assinatura
+    let subBadge = '';
+    const subStatus = u.subscription_status || 'Ativa';
+    if (subStatus === 'Ativa') {
+      subBadge = `<span class="text-[10px] bg-emerald-500/20 text-emerald-300 font-semibold px-2 py-0.5 rounded">Ativa</span>`;
+    } else if (subStatus === 'Trial') {
+      subBadge = `<span class="text-[10px] bg-cyan-500/20 text-cyan-300 font-semibold px-2 py-0.5 rounded">Trial</span>`;
+    } else if (subStatus === 'Bloqueada' || subStatus === 'Expirada') {
+      subBadge = `<span class="text-[10px] bg-rose-500/20 text-rose-300 font-semibold px-2 py-0.5 rounded">${subStatus}</span>`;
+    } else {
+      subBadge = `<span class="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded">${subStatus}</span>`;
+    }
+
+    // Botões de Ação
+    let actionButtons = '';
+
+    // Se estiver pendente, botão de aprovação em destaque
+    if (isPending(u.status)) {
+      actionButtons += `
+        <button onclick="approveMember('${u.id}', '${esc(u.name || u.email)}')" class="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20">
+          <i class="fa-solid fa-check"></i> Aprovar
+        </button>
+      `;
+    }
+
+    // Botão de Bloquear ou Desbloquear
+    if (isBlocked(u.status)) {
+      actionButtons += `
+        <button onclick="unblockMember('${u.id}', '${esc(u.name || u.email)}')" class="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer">
+          <i class="fa-solid fa-lock-open"></i> Desbloquear
+        </button>
+      `;
+    } else {
+      actionButtons += `
+        <button onclick="blockMember('${u.id}', '${esc(u.name || u.email)}')" class="text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 p-2 rounded-lg transition cursor-pointer" title="Bloquear / Suspender Membro">
+          <i class="fa-solid fa-user-lock text-xs"></i>
+        </button>
+      `;
+    }
+
+    // Botão de Excluir
+    actionButtons += `
+      <button onclick="openDeleteModal('${u.id}', '${esc(u.email)}')" class="text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 p-2 rounded-lg transition cursor-pointer" title="Excluir Definitivamente">
+        <i class="fa-solid fa-trash-can text-xs"></i>
+      </button>
+    `;
+
+    return `
+      <tr class="hover:bg-slate-800/40 transition">
+        <td class="px-5 py-3">
+          <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-slate-800 to-slate-700 text-emerald-400 flex items-center justify-center font-bold text-xs shadow-inner flex-shrink-0">
+              ${(u.name || u.email || '?').charAt(0).toUpperCase()}
+            </div>
+            <div class="truncate">
+              <p class="text-xs font-semibold text-white truncate">${esc(u.name || 'Sem nome')}</p>
+              <p class="text-[11px] text-slate-400 font-mono truncate">${esc(u.email)}</p>
+            </div>
+          </div>
+        </td>
+        <td class="px-5 py-3">
+          <span class="inline-block bg-slate-800/80 border border-slate-700/60 px-2 py-0.5 rounded-md text-[11px] text-slate-200">
+            ${esc(u.role || 'Músico')}
+          </span>
+        </td>
+        <td class="px-5 py-3">
+          <!-- Botão interativo para alterar plano -->
+          <button 
+            type="button"
+            onclick="openPlanModal('${u.id}', '${esc(u.email)}', '${u.plan_id}', '${u.subscription_status}', '${u.subscription_expires_at}')"
+            class="group/btn flex items-center gap-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 px-3 py-1.5 rounded-xl text-left transition cursor-pointer"
+            title="Clique para selecionar outro plano para este membro"
+          >
+            <i class="fa-solid fa-gem text-emerald-400 text-xs"></i>
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs font-bold text-white group-hover/btn:text-emerald-300 transition">${esc(u.plan_name || 'Worship Mensal')}</span>
+                ${subBadge}
+              </div>
+              <p class="text-[10px] text-slate-400 font-mono">
+                ${u.subscription_expires_at ? 'Vence: ' + fmtDate(u.subscription_expires_at) : 'Sem validade'}
+                <span class="text-emerald-400/80 ml-1 group-hover/btn:underline">· Trocar Plano</span>
+              </p>
+            </div>
+          </button>
+        </td>
+        <td class="px-5 py-3">${statusBadge}</td>
+        <td class="px-5 py-3 text-[11px] text-slate-400 font-mono">${fmtDate(u.created_at)}</td>
+        <td class="px-5 py-3 text-right">
+          <div class="flex items-center justify-end gap-1.5">
+            ${actionButtons}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Ações de Aprovação e Bloqueio
+// ═══════════════════════════════════════════════════════════════
+async function approveMember(userId, name) {
+  try {
+    toast(`Aprovando cadastro de "${name}"...`, 'info');
+    const r = await fetch(`/api/users/${userId}/approve`, { method: 'POST' });
+    const d = await r.json();
+    toast(d.message, d.success ? 'success' : 'error');
+    if (d.success) loadUsers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function blockMember(userId, name) {
+  if (!confirm(`Tem certeza que deseja BLOQUEAR o membro "${name}"?\nO acesso dele ao aplicativo será revogado imediatamente.`)) return;
+  try {
+    toast(`Bloqueando "${name}"...`, 'info');
+    const r = await fetch(`/api/users/${userId}/block`, { method: 'POST' });
+    const d = await r.json();
+    toast(d.message, d.success ? 'warning' : 'error');
+    if (d.success) loadUsers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function unblockMember(userId, name) {
+  try {
+    toast(`Desbloqueando "${name}"...`, 'info');
+    const r = await fetch(`/api/users/${userId}/unblock`, { method: 'POST' });
+    const d = await r.json();
+    toast(d.message, d.success ? 'success' : 'error');
+    if (d.success) loadUsers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Planos e Assinaturas
+// ═══════════════════════════════════════════════════════════════
+async function loadPlans() {
+  const container = document.getElementById('plansGrid');
+  try {
+    const r = await fetch('/api/plans');
+    if (r.status === 401) {
+      showLogin();
+      return;
+    }
+    const d = await r.json();
+    allPlans = d.plans || [];
+
+    // Preencher select do modal de criação
+    const userInitialPlan = document.getElementById('userInitialPlan');
+    userInitialPlan.innerHTML = allPlans.map(p => `
+      <option value="${p.id}" ${p.id==='assinatura_app'?'selected':''}>${esc(p.name)} (${fmtPrice(p.price)})</option>
+    `).join('');
+
+    // Renderizar cards do catálogo de planos
+    container.innerHTML = allPlans.map(p => {
+      const memberCount = allMembers.filter(m => m.plan_id === p.id).length;
+      const isPopular = p.id === 'assinatura_app' || p.id === 'mensal';
+
+      return `
+        <div class="bg-slate-900 border ${isPopular ? 'border-emerald-500/50 shadow-emerald-500/10' : 'border-slate-800'} rounded-2xl p-6 shadow-xl relative flex flex-col justify-between">
+          ${isPopular ? '<span class="absolute -top-3 right-6 bg-emerald-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">Mais Usado</span>' : ''}
+          <div class="space-y-4">
+            <div>
+              <h3 class="text-base font-bold text-white">${esc(p.name)}</h3>
+              <p class="text-xs text-slate-400 mt-1 min-h-[32px]">${esc(p.description || 'Acesso completo aos recursos de playback.')}</p>
+            </div>
+            
+            <div class="pt-2 border-t border-slate-800">
+              <span class="text-2xl font-bold text-white">${fmtPrice(p.price)}</span>
+              <span class="text-xs text-slate-400">/ ${p.interval === 'year' ? 'ano' : (p.interval === 'lifetime' ? 'vitalício' : 'mês')}</span>
+            </div>
+
+            <ul class="text-xs text-slate-300 space-y-2 pt-2">
+              <li class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-400 text-[10px]"></i> Mixer de 8 canais estéreo</li>
+              <li class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-400 text-[10px]"></i> Pads contínuos em todas as tonalidades</li>
+              <li class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-400 text-[10px]"></i> Downloads ilimitados de multitracks</li>
+              ${p.id === 'mensal' || p.id === 'church_vip' ? '<li class="flex items-center gap-2 text-emerald-300 font-semibold"><i class="fa-solid fa-cloud text-emerald-400 text-[10px]"></i> Nuvem Backblaze B2 inclusa</li>' : ''}
+            </ul>
+          </div>
+
+          <div class="mt-6 pt-4 border-t border-slate-800 space-y-3">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span class="flex items-center gap-1.5"><i class="fa-solid fa-user-group text-slate-500"></i> <strong class="text-white">${memberCount}</strong> ${memberCount === 1 ? 'membro' : 'membros'}</span>
+              <span class="text-[10px] font-mono uppercase bg-slate-950 px-2 py-0.5 rounded border border-slate-800">${p.id}</span>
+            </div>
+
+            <!-- Botão de Selecionar / Atribuir -->
+            <button 
+              type="button"
+              onclick="openAssignPlanModal('${p.id}', '${esc(p.name)}')"
+              class="w-full bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-white border border-emerald-500/30 py-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+            >
+              <i class="fa-solid fa-user-check"></i> Selecionar / Atribuir a Membro
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+  } catch (e) {
+    container.innerHTML = `<div class="col-span-3 text-center py-8 text-rose-400 text-xs">Erro ao carregar planos: ${esc(e.message)}</div>`;
+  }
+}
+
+// Abrir modal de seleção de plano para um membro específico
+function openPlanModal(memberId, email, currentPlanId, currentSubStatus, expiresAt) {
+  document.getElementById('planMemberId').value = memberId;
+  document.getElementById('planModalMemberEmail').innerText = email;
+  
+  const container = document.getElementById('planOptionCards');
+  container.innerHTML = allPlans.map(p => {
+    const isSelected = (p.id === currentPlanId) || (!currentPlanId && p.id === 'assinatura_app');
+    return `
+      <label class="flex items-center justify-between p-3 rounded-xl border cursor-pointer transition ${isSelected ? 'bg-emerald-500/10 border-emerald-500/60 text-white' : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'}" onclick="selectPlanRadio('${p.id}')">
+        <div class="flex items-center space-x-3">
+          <input type="radio" name="planRadioItem" value="${p.id}" ${isSelected ? 'checked' : ''} class="text-emerald-500 focus:ring-emerald-500"/>
+          <div>
+            <p class="text-xs font-bold text-white">${esc(p.name)}</p>
+            <p class="text-[10px] text-slate-400">${esc(p.description || '')}</p>
+          </div>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <p class="text-xs font-mono font-bold text-emerald-400">${fmtPrice(p.price)}</p>
+          <p class="text-[10px] text-slate-500">/${p.interval==='year'?'ano':'mês'}</p>
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  document.getElementById('selectedPlanRadio').value = currentPlanId || 'assinatura_app';
+
+  if (currentSubStatus) {
+    document.getElementById('subStatusSelect').value = currentSubStatus;
+  }
+  if (expiresAt && expiresAt !== 'None' && expiresAt !== '—') {
+    document.getElementById('planExpiresInput').value = expiresAt.split('T')[0];
+  } else {
+    setExpirationDays(30);
+  }
+
+  document.getElementById('planModal').showModal();
+}
+
+function selectPlanRadio(planId) {
+  document.getElementById('selectedPlanRadio').value = planId;
+}
+
+function setExpirationDays(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  document.getElementById('planExpiresInput').value = d.toISOString().split('T')[0];
+}
+
+async function submitPlanForm() {
+  const memberId = document.getElementById('planMemberId').value;
+  const planId = document.getElementById('selectedPlanRadio').value;
+  const planObj = allPlans.find(p => p.id === planId);
+  const planName = planObj ? planObj.name : planId;
+  const subStatus = document.getElementById('subStatusSelect').value;
+  const expiresAt = document.getElementById('planExpiresInput').value;
+
+  const btn = document.getElementById('planSubmitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Salvando...';
+
+  try {
+    const r = await fetch(`/api/users/${memberId}/subscription`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan_id: planId,
+        plan_name: planName,
+        subscription_status: subStatus,
+        expires_at: expiresAt
+      })
+    });
+    const d = await r.json();
+    toast(d.message, d.success ? 'success' : 'error');
+    if (d.success) {
+      document.getElementById('planModal').close();
+      loadUsers();
+      loadPlans();
+    }
+  } catch (e) { toast(e.message, 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-1"></i> Salvar e Aplicar Plano';
+  }
+}
+
+// Modal de Atribuição a partir da Aba de Planos
+function openAssignPlanModal(planId, planName) {
+  document.getElementById('assignTargetPlanId').value = planId;
+  document.getElementById('assignTargetPlanName').value = planName;
+  document.getElementById('assignPlanModalTitle').innerText = `${planName}`;
+  populateAssignMemberSelect();
+  document.getElementById('assignPlanModal').showModal();
+}
+
+function populateAssignMemberSelect() {
+  const sel = document.getElementById('assignMemberSelect');
+  if (!sel) return;
+  if (allMembers.length === 0) {
+    sel.innerHTML = '<option value="">Nenhum membro cadastrado</option>';
+    return;
+  }
+  sel.innerHTML = allMembers.map(m => `
+    <option value="${m.id}">
+      ${esc(m.name || m.email)} (${esc(m.email)}) · Plano atual: ${esc(m.plan_name || 'Nenhum')}
+    </option>
+  `).join('');
+}
+
+async function submitAssignPlan() {
+  const memberId = document.getElementById('assignMemberSelect').value;
+  const planId = document.getElementById('assignTargetPlanId').value;
+  const planName = document.getElementById('assignTargetPlanName').value;
+  const subStatus = document.getElementById('assignSubStatus').value;
+
+  if (!memberId) { toast('Selecione um membro.', 'error'); return; }
+
+  const btn = document.getElementById('assignSubmitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Atribuindo...';
+
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  const expiresAt = d.toISOString().split('T')[0];
+
+  try {
+    const r = await fetch(`/api/users/${memberId}/subscription`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan_id: planId,
+        plan_name: planName,
+        subscription_status: subStatus,
+        expires_at: expiresAt
+      })
+    });
+    const res = await r.json();
+    toast(res.message, res.success ? 'success' : 'error');
+    if (res.success) {
+      document.getElementById('assignPlanModal').close();
+      loadUsers();
+      loadPlans();
+    }
+  } catch (e) { toast(e.message, 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Confirmar Atribuição';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Modais de Criação e Edição
+// ═══════════════════════════════════════════════════════════════
+function openAddUserModal() {
+  document.getElementById('modalTitle').innerHTML = '<i class="fa-solid fa-user-plus text-emerald-400"></i> Adicionar Novo Membro';
+  document.getElementById('editUserId').value = '';
+  document.getElementById('userName').value = '';
+  document.getElementById('userEmail').value = '';
+  document.getElementById('userEmail').disabled = false;
+  document.getElementById('userPassword').value = '';
+  document.getElementById('passwordField').classList.remove('hidden');
+  document.getElementById('planSelectionField').classList.remove('hidden');
+  document.getElementById('modalSubmitText').innerText = 'Criar Membro';
+  document.getElementById('userModal').showModal();
+}
+
+async function submitUserForm() {
+  const uid = document.getElementById('editUserId').value;
+  const name = document.getElementById('userName').value.trim();
+  const email = document.getElementById('userEmail').value.trim();
+  const password = document.getElementById('userPassword').value;
+  const role = document.getElementById('userRole').value;
+  const status = document.getElementById('userInitialStatus').value;
+  const planSelect = document.getElementById('userInitialPlan');
+  const planId = planSelect.value;
+  const planName = planSelect.options[planSelect.selectedIndex]?.innerText || 'Worship Playback Mensal';
+
+  const btn = document.getElementById('modalSubmitBtn');
+  btn.disabled = true;
+  document.getElementById('modalSubmitIcon').className = 'fa-solid fa-circle-notch fa-spin';
+
+  try {
+    let r;
+    if (uid) {
+      r = await fetch(`/api/users/${uid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, role })
+      });
+    } else {
+      if (!email) { toast('E-mail é obrigatório.', 'error'); return; }
+      if (!password || password.length < 6) { toast('Senha deve ter no mínimo 6 caracteres.', 'error'); return; }
+      r = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name, role, status, plan_id: planId, plan_name: planName })
+      });
+    }
+    const d = await r.json();
+    toast(d.message, d.success ? 'success' : 'error');
+    if (d.success) {
+      document.getElementById('userModal').close();
+      loadUsers();
+      loadPlans();
+    }
+  } catch (e) { toast(e.message, 'error'); }
+  finally {
+    btn.disabled = false;
+    document.getElementById('modalSubmitIcon').className = 'fa-solid fa-check';
+  }
+}
+
+function openDeleteModal(id, email) {
+  pendingDeleteUserId = id;
+  document.getElementById('deleteUserEmail').innerText = email;
+  document.getElementById('deleteModal').showModal();
+}
+
+async function confirmDeleteUser() {
+  if (!pendingDeleteUserId) return;
+  const btn = document.getElementById('deleteConfirmBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Removendo...';
+
+  try {
+    const r = await fetch(`/api/users/${pendingDeleteUserId}`, { method: 'DELETE' });
+    const d = await r.json();
+    toast(d.message, d.success ? 'success' : 'error');
+    if (d.success) {
+      document.getElementById('deleteModal').close();
+      loadUsers();
+      loadPlans();
+    }
+  } catch (e) { toast(e.message, 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-trash-can mr-1"></i> Remover';
+    pendingDeleteUserId = null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Supabase SQL Setup Modal & Seed Plans
+// ═══════════════════════════════════════════════════════════════
+let cachedSqlScript = '';
+
+async function openSqlModal() {
+  const modal = document.getElementById('sqlModal');
+  const textarea = document.getElementById('sqlCodeContent');
+  modal.showModal();
+
+  if (!cachedSqlScript) {
+    textarea.value = '-- Carregando script SQL do servidor...';
+    try {
+      const res = await fetch('/api/supabase/sql');
+      const data = await res.json();
+      if (data.success && data.sql) {
+        cachedSqlScript = data.sql;
+        textarea.value = cachedSqlScript;
+      } else {
+        textarea.value = '-- Não foi possível obter o script SQL.';
+      }
+    } catch (e) {
+      textarea.value = `-- Erro ao buscar script: ${e.message}`;
+    }
+  } else {
+    textarea.value = cachedSqlScript;
+  }
+}
+
+async function copySqlCode() {
+  const textarea = document.getElementById('sqlCodeContent');
+  const code = textarea.value;
+  if (!code || code.startsWith('-- Erro') || code.startsWith('-- Carregando')) {
+    toast('Script ainda não disponível.', 'warning');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(code);
+    toast('Código SQL copiado para a Área de Transferência! Cole no Supabase SQL Editor.', 'success');
+    const copyBtn = document.getElementById('copySqlBtn');
+    if (copyBtn) {
+      const oldHtml = copyBtn.innerHTML;
+      copyBtn.innerHTML = '<i class="fa-solid fa-check"></i> <span>Copiado!</span>';
+      copyBtn.classList.replace('bg-emerald-600', 'bg-emerald-500');
+      setTimeout(() => {
+        copyBtn.innerHTML = oldHtml;
+        copyBtn.classList.replace('bg-emerald-500', 'bg-emerald-600');
+      }, 2500);
+    }
+  } catch (err) {
+    textarea.focus();
+    textarea.select();
+    document.execCommand('copy');
+    toast('Código SQL copiado!', 'success');
+  }
+}
+
+async function seedPlansDirectly() {
+  const btn = document.getElementById('seedPlansBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-emerald-400"></i> Gravando...';
+  }
+  try {
+    const res = await fetch('/api/supabase/seed-plans', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      toast(data.message, 'success');
+      loadPlans();
+    } else {
+      toast(data.message || 'Falha ao gravar planos.', 'error');
+      openSqlModal();
+    }
+  } catch (e) {
+    toast(`Erro: ${e.message}`, 'error');
+    openSqlModal();
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-emerald-400"></i> Gravar Planos no Supabase';
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// B2 Sync & Upload
+// ═══════════════════════════════════════════════════════════════
+function switchB2Tab(tab) {
+  ['sync','upload','auth'].forEach(t => {
+    const btn = document.getElementById(`b2Tab${t.charAt(0).toUpperCase()+t.slice(1)}`);
+    const panel = document.getElementById(`b2Panel${t.charAt(0).toUpperCase()+t.slice(1)}`);
+    btn.className = t===tab ? 'px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-500 text-white cursor-pointer' : 'px-3 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer';
+    panel.classList.toggle('hidden', t!==tab);
+  });
+}
+
+async function cancelUnfinishedUploads() {
+  const bucket = document.getElementById('syncBucketName').value.trim();
+  if (!bucket) { toast('Preencha o bucket B2.', 'error'); return; }
+  appendLog(`Cancelando uploads inacabados em b2://${bucket}...`, 'cmd');
+  try {
+    const r = await fetch('/api/large/cancel-unfinished', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bucket })
+    });
+    const d = await r.json();
+    if (d.stdout?.trim()) appendLog(d.stdout.trim(), 'raw');
+    appendLog(d.message, d.success ? 'success' : 'error');
+    toast(d.message, d.success ? 'success' : 'error');
+  } catch (e) {
+    appendLog(`Erro: ${e.message}`, 'error');
+    toast(e.message, 'error');
+  }
+}
+
+async function startSyncFolder() {
+  const localDir = document.getElementById('localDir').value.trim();
+  const bucket = document.getElementById('syncBucketName').value.trim();
+  const threads = parseInt(document.getElementById('syncThreads')?.value || '2', 10);
+  if (!localDir || !bucket) { toast('Preencha diretório e bucket.', 'error'); return; }
+  const btn = document.getElementById('syncBtn');
+  btn.disabled = true;
+  document.getElementById('syncBtnIcon').className = 'fa-solid fa-circle-notch fa-spin text-base';
+  document.getElementById('syncBtnText').innerText = 'Sincronizando...';
+  appendLog(`Sync: "${localDir}" → b2://${bucket} (Threads: ${threads})`, 'cmd');
+
+  try {
+    const r = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ local_dir: localDir, bucket, threads })
+    });
+    const d = await r.json();
+    if (d.stdout?.trim()) appendLog(d.stdout.trim(), 'raw');
+    if (d.stderr?.trim()) appendLog(d.stderr.trim(), d.success ? 'warning' : 'error');
+    appendLog(d.message, d.success ? 'success' : 'error');
+    toast(d.message, d.success ? 'success' : 'error');
+  } catch (e) {
+    appendLog(`Erro: ${e.message}`, 'error');
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    document.getElementById('syncBtnIcon').className = 'fa-solid fa-arrows-rotate text-base';
+    document.getElementById('syncBtnText').innerText = 'Iniciar Sincronização';
+  }
+}
+
+const dz = document.getElementById('dropZone');
+['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drop-zone-active'); }));
+['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drop-zone-active'); }));
+dz.addEventListener('drop', e => { if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]); });
+function handleFileSelect(e) { if (e.target.files.length) setFile(e.target.files[0]); }
+function setFile(f) { currentSelectedFile = f; document.getElementById('selectedFileName').innerText = f.name; document.getElementById('selectedFileSize').innerText = fmtBytes(f.size); document.getElementById('fileSelectedCard').classList.remove('hidden'); }
+function clearSelectedFile() { currentSelectedFile = null; document.getElementById('fileInput').value = ''; document.getElementById('fileSelectedCard').classList.add('hidden'); }
+
+function startUploadFile() {
+  if (!currentSelectedFile) { toast('Selecione um arquivo.', 'error'); return; }
+  const bucket = document.getElementById('uploadBucket').value.trim();
+  const remoteFolder = document.getElementById('remoteFolder').value.trim();
+  if (!bucket) { toast('Informe o bucket.', 'error'); return; }
+  const btn = document.getElementById('uploadBtn');
+  btn.disabled = true;
+  document.getElementById('uploadBtnIcon').className = 'fa-solid fa-circle-notch fa-spin text-base';
+  document.getElementById('uploadBtnText').innerText = 'Enviando...';
+  const pc = document.getElementById('uploadProgressContainer');
+  pc.classList.remove('hidden');
+  const pb = document.getElementById('uploadProgressBar'), pp = document.getElementById('uploadProgressPercent'), ps = document.getElementById('uploadProgressStatus');
+  pb.style.width = '0%'; pp.innerText = '0%';
+  const fd = new FormData();
+  fd.append('file', currentSelectedFile);
+  fd.append('bucket', bucket);
+  fd.append('remote_folder', remoteFolder);
+
+  appendLog(`Upload: "${currentSelectedFile.name}" → b2://${bucket}/${remoteFolder ? remoteFolder + '/' : ''}`, 'cmd');
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload', true);
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const p = Math.round(e.loaded / e.total * 100);
+      pb.style.width = p + '%';
+      pp.innerText = p + '%';
+      ps.innerText = p === 100 ? 'Gravando no B2...' : fmtBytes(e.loaded) + ' / ' + fmtBytes(e.total);
+    }
+  };
+  xhr.onload = () => {
+    btn.disabled = false;
+    document.getElementById('uploadBtnIcon').className = 'fa-solid fa-cloud-arrow-up text-base';
+    document.getElementById('uploadBtnText').innerText = 'Enviar Arquivo';
+    try {
+      const d = JSON.parse(xhr.responseText);
+      if (d.stdout?.trim()) appendLog(d.stdout.trim(), 'raw');
+      if (d.stderr?.trim()) appendLog(d.stderr.trim(), d.success ? 'warning' : 'error');
+      if (d.success) {
+        appendLog(d.message, 'success');
+        toast(d.message, 'success');
+        clearSelectedFile();
+        ps.innerText = 'Concluído!';
+      } else {
+        appendLog(d.message, 'error');
+        toast(d.message, 'error');
+        ps.innerText = 'Falha';
+      }
+    } catch { appendLog('Erro na resposta do servidor.', 'error'); }
+  };
+  xhr.onerror = () => {
+    btn.disabled = false;
+    document.getElementById('uploadBtnIcon').className = 'fa-solid fa-cloud-arrow-up text-base';
+    document.getElementById('uploadBtnText').innerText = 'Enviar Arquivo';
+    toast('Erro de rede.', 'error');
+  };
+  xhr.send(fd);
+}
+
+async function checkB2Account() {
+  try {
+    const r = await fetch('/api/account');
+    const d = await r.json();
+    const badge = document.getElementById('b2AccountBadge');
+    badge.classList.remove('hidden');
+    document.getElementById('b2AccountText').innerText = d.authenticated ? 'B2 Conectado' : 'B2 Desc.';
+    document.getElementById('authStatusBadge').innerText = d.authenticated ? 'Conectado' : 'Não Autorizado';
+    document.getElementById('authStatusBadge').className = d.authenticated ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold';
+    if (d.authenticated) {
+      try {
+        const p = JSON.parse(d.raw);
+        document.getElementById('authDetails').innerHTML = `Bucket: <strong class="text-white">${p.allowed?.buckets?.[0]?.name || 'Todos'}</strong>`;
+      } catch { document.getElementById('authDetails').innerText = 'Conta B2 ativa.'; }
+    } else {
+      document.getElementById('authDetails').innerText = 'Insira suas chaves abaixo.';
+    }
+  } catch {}
+}
+
+async function authorizeB2Account() {
+  const keyId = document.getElementById('keyId').value.trim();
+  const appKey = document.getElementById('appKey').value.trim();
+  if (!keyId || !appKey) { toast('Preencha Key ID e App Key.', 'error'); return; }
+  const btn = document.getElementById('authBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Conectando...';
+  try {
+    const r = await fetch('/api/account/authorize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key_id: keyId, app_key: appKey })
+    });
+    const d = await r.json();
+    toast(d.message, d.success ? 'success' : 'error');
+    if (d.success) checkB2Account();
+  } catch (e) { toast(e.message, 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-plug text-emerald-400 mr-1"></i>Autorizar';
+  }
+}
+
+function appendLog(msg, type='info') {
+  const line = document.createElement('div');
+  const time = `<span class="text-slate-500 select-none">[${ts()}]</span> `;
+  const icons = { cmd:'chevron-right', success:'check', error:'triangle-exclamation', warning:'circle-exclamation' };
+  const colors = { cmd:'text-cyan-400 font-semibold', success:'text-emerald-400', error:'text-rose-400', warning:'text-amber-400', raw:'text-slate-300 whitespace-pre-wrap', info:'text-slate-300' };
+  line.className = colors[type] || colors.info;
+  if (type === 'raw') { line.innerHTML = esc(msg); } else { const ic = icons[type]; line.innerHTML = time + (ic ? `<i class="fa-solid fa-${ic} text-xs mr-1"></i> ` : '') + esc(msg); }
+  terminal.appendChild(line);
+  terminal.scrollTop = terminal.scrollHeight;
+}
+
+function clearTerminal() {
+  terminal.innerHTML = `<div class="text-slate-500">[SISTEMA] Console limpo às ${ts()}.</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Autenticação de Administrador
+// ═══════════════════════════════════════════════════════════════
+async function checkAdminAuth() {
+  try {
+    const res = await fetch('/api/auth/status');
+    const data = await res.json();
+    if (data.authenticated) {
+      showDashboard();
+    } else {
+      showLogin();
+    }
+  } catch (e) {
+    showLogin();
+  }
+}
+
+function showLogin() {
+  document.getElementById('loginScreen').classList.remove('hidden');
+  document.getElementById('appDashboard').classList.add('hidden');
+}
+
+function showDashboard() {
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('appDashboard').classList.remove('hidden');
+  checkSupabaseStatus();
+  loadUsers();
+  loadPlans();
+  checkB2Account();
+}
+
+async function submitAdminLogin() {
+  const user = document.getElementById('loginUsername').value.trim();
+  const pass = document.getElementById('loginPassword').value.trim();
+  const errDiv = document.getElementById('loginErrorMessage');
+  const errText = document.getElementById('loginErrorText');
+  const btn = document.getElementById('loginSubmitBtn');
+  const btnIcon = document.getElementById('loginBtnIcon');
+  const btnText = document.getElementById('loginBtnText');
+
+  errDiv.classList.add('hidden');
+  btn.disabled = true;
+  btnIcon.className = 'fa-solid fa-circle-notch fa-spin';
+  btnText.innerText = 'Entrando...';
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      toast(data.message, 'success');
+      showDashboard();
+    } else {
+      errText.innerText = data.message || 'Usuário ou senha incorretos.';
+      errDiv.classList.remove('hidden');
+      toast(data.message || 'Acesso negado', 'error');
+    }
+  } catch (e) {
+    errText.innerText = `Erro de conexão: ${e.message}`;
+    errDiv.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btnIcon.className = 'fa-solid fa-arrow-right-to-bracket';
+    btnText.innerText = 'Entrar na Plataforma';
+  }
+}
+
+async function logoutAdmin() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    toast('Sessão encerrada com sucesso.', 'info');
+  } catch (e) {}
+  showLogin();
+  const passInput = document.getElementById('loginPassword');
+  if (passInput) passInput.value = '';
+}
+
+function toggleLoginPassword() {
+  const input = document.getElementById('loginPassword');
+  const icon = document.getElementById('loginEyeIcon');
+  if (input.type === 'password') {
+    input.type = 'text';
+    icon.className = 'fa-solid fa-eye-slash text-xs';
+  } else {
+    input.type = 'password';
+    icon.className = 'fa-solid fa-eye text-xs';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Inicialização
+// ═══════════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  checkAdminAuth();
+});
+</script>
+</body>
+</html>
